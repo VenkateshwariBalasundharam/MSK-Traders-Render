@@ -1,0 +1,5 @@
+node_modules/
+.env
+fix-password.js
+*.sql
+startup.bat
