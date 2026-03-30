@@ -313,7 +313,7 @@ app.get("/api/products", async (req, res) => {
   }
 });
 
-app.post("/api/products", requireOwner, async (req, res) => {
+app.post("/api/products", async (req, res) => {
   const { name, batch_no, supplier, category, quantity,
           purchase_price, selling_price, purchase_date, expiry_date, status } = req.body;
   if (!name || !batch_no || !quantity || !expiry_date)
@@ -384,7 +384,7 @@ app.get("/api/suppliers", async (req, res) => {
   }
 });
 
-app.post("/api/suppliers", requireOwner, async (req, res) => {
+app.post("/api/suppliers", async (req, res) => {
   const { name, contact } = req.body;
   if (!name || !contact)
     return res.status(400).json({ error: "Missing required fields: name, contact" });

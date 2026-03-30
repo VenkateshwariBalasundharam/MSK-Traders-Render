@@ -38,24 +38,24 @@ function applyRolePermissions() {
   }
 
   if (!owner) {
-    // ── Products: hide Add/Edit form card + header export/invoice buttons ──
-    const productAddCard = document.querySelector("#sec-products[data-section='products'] .card");
-    if (productAddCard) productAddCard.style.display = "none";
+    // ── Products: staff can ADD but not edit/delete
+    //    Keep the add form visible; hide Cancel Edit button only
+    const cancelEditBtn = document.getElementById("cancelEdit");
+    if (cancelEditBtn) cancelEditBtn.style.display = "none";
+    // Hide Export & Invoice header buttons
     document.querySelectorAll("#sec-products .header-actions .btn")
       .forEach(b => b.style.display = "none");
 
-    // ── Suppliers: hide Add Supplier card ──────────
-    const supAddCard = document.getElementById("supplierAddCard");
-    if (supAddCard) supAddCard.style.display = "none";
+    // ── Suppliers: staff can ADD — keep add card visible ──
 
     // ── Reports: hide Export CSV & Print ──────────
     document.querySelectorAll("#sec-reports .header-actions .btn")
       .forEach(b => b.style.display = "none");
 
-    // ── Staff notice banners ────────────────────────
-    _addViewOnlyBanner("sec-products", "You have view-only access to Products.");
-    _addViewOnlyBanner("sec-suppliers", "You have view-only access to Suppliers.");
-    _addViewOnlyBanner("sec-reports", "You can view reports but cannot export.");
+    // ── Info banners ───────────────────────────────
+    _addViewOnlyBanner("sec-products",  "You can add products. Editing &amp; deleting requires Owner access.");
+    _addViewOnlyBanner("sec-suppliers", "You can add suppliers. Deleting requires Owner access.");
+    _addViewOnlyBanner("sec-reports",   "You can view reports. Exporting requires Owner access.");
   }
 }
 
@@ -206,7 +206,6 @@ function formatDate(val) {
 //  ADD / UPDATE PRODUCT
 // ============================================
 async function addProduct() {
-  if (!isOwner()) { showToast("Access denied. Owner only.", "error"); return; }
   const name          = document.getElementById("productName").value.trim();
   const batch         = document.getElementById("batchNo").value.trim();
   const supplier      = document.getElementById("supplier").value;
@@ -263,6 +262,7 @@ async function deleteProduct(id) {
 }
 
 function editProduct(id) {
+  if (!isOwner()) { showToast("Editing requires Owner access.", "error"); return; }
   const p = products.find(p => p.id === id);
   if (!p) return;
   document.getElementById("productName").value   = p.name;
@@ -362,7 +362,6 @@ async function loadSuppliers() {
 }
 
 async function addSupplier() {
-  if (!isOwner()) { showToast("Access denied. Owner only.", "error"); return; }
   const name    = document.getElementById("supplierName").value.trim();
   const contact = document.getElementById("supplierContact").value.trim();
   if (!name || !contact) { showToast("Please fill all supplier fields.", "error"); return; }
