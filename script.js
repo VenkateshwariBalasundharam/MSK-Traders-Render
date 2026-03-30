@@ -412,7 +412,6 @@ async function loadSalesSummary() {
     setEl("monthSales",   fmt(data.month?.month_sales || 0));
     setEl("totalSalesAll",fmt(data.total?.total_sales || 0));
     setEl("todayBills",   data.today?.today_bills || 0);
-    // Sales section cards
     setEl("sToday", fmt(data.today?.today_sales || 0));
     setEl("sMonth", fmt(data.month?.month_sales || 0));
     setEl("sBills", data.today?.today_bills || 0);
@@ -580,7 +579,7 @@ function renderBillRows() {
       <input type="number" placeholder="Price ₹" min="0" step="0.01" value="${row.unit_price||""}"
         onchange="updateBillRow(${row.id},'unit_price',this.value)">
       <input type="number" placeholder="Disc%" min="0" max="100" step="0.01" value="${row.discount_pct||""}"
-        onchange="updateBillRow(${row.id},'discount_pct',this.value)">
+        oninput="updateBillRow(${row.id},'discount_pct',this.value)">
       <button class="bill-remove-btn" onclick="removeBillRow(${row.id})"><i class="fa-solid fa-xmark"></i></button>`;
     container.appendChild(div);
   });
@@ -622,7 +621,6 @@ function selectBillProduct(rowId, productId) {
   row.product_name = p.name;
   row.batch_no     = p.batch;
   row.unit_price   = p.sellingPrice;
-  // Close dropdown and update input
   const dd = document.getElementById("pd-" + rowId);
   if (dd) dd.classList.remove("open");
   renderBillRows();
@@ -639,24 +637,36 @@ function updateBillRow(rowId, field, value) {
   }
 }
 
+// ============================================
+//  ✅ FIXED: Auto-calculate discount amount from disc% rows
+// ============================================
 function updateBillSummary() {
-  let subtotal = 0;
+  let grossTotal = 0;  // original price before disc%
+  let netTotal   = 0;  // price after disc% applied per row
+
   billRows.forEach(row => {
-    const line = row.quantity * row.unit_price * (1 - (row.discount_pct||0)/100);
-    subtotal += line;
+    const gross = row.quantity * row.unit_price;
+    const net   = gross * (1 - (row.discount_pct || 0) / 100);
+    grossTotal += gross;
+    netTotal   += net;
   });
-  const discount  = parseFloat(document.getElementById("billDiscount")?.value) || 0;
-  const total     = Math.max(0, subtotal - discount);
-  const fmt = v => "₹" + v.toFixed(2);
+
+  // Auto-fill Discount (₹) with total discount from all disc% rows
+  const rowDiscountAmt = grossTotal - netTotal;
+  const discEl = document.getElementById("billDiscount");
+  if (discEl) discEl.value = rowDiscountAmt.toFixed(2);
+
+  const fmt     = v => "₹" + v.toFixed(2);
   const setSafe = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-  setSafe("billSubtotal", fmt(subtotal));
-  setSafe("billTotal",    fmt(total));
+
+  setSafe("billSubtotal", fmt(grossTotal));   // show gross before discount
+  setSafe("billTotal",    fmt(netTotal));      // show net after discount
 }
 
 function clearBill() {
   billRows = [];
   addBillRow();
-  const cust = document.getElementById("billCustomer");
+  const cust  = document.getElementById("billCustomer");
   const phone = document.getElementById("billPhone");
   const disc  = document.getElementById("billDiscount");
   if (cust)  cust.value  = "";
@@ -666,12 +676,10 @@ function clearBill() {
 }
 
 async function finalizeBill() {
-  // Validate rows
   const validRows = billRows.filter(r => r.product_id && r.quantity > 0);
   if (!validRows.length) {
     showToast("Please add at least one product to the bill.", "error"); return;
   }
-  // Check stock
   for (const row of validRows) {
     const p = products.find(p => p.id === row.product_id);
     if (p && row.quantity > p.quantity) {
@@ -692,7 +700,7 @@ async function finalizeBill() {
     const data = await apiCall("POST", "/sales", { customer, items, discount, sold_by });
     showToast("Bill created successfully! Printing...");
     printBill(data.sale, data.items);
-    await loadProducts(); // Refresh stock
+    await loadProducts();
     clearBill();
   } catch (err) {
     showToast("Error creating bill: " + err.message, "error");
@@ -817,7 +825,6 @@ function renderSalesTable() {
         <button class="btn btn-sm btn-del"  onclick="deleteSale(${s.id})"><i class="fa-solid fa-trash"></i></button>
       </div></td>`;
     tbody.appendChild(row);
-    // Load item count async
     loadBillItemCount(s.id, row.cells[3]);
   });
 }
@@ -1018,7 +1025,6 @@ document.addEventListener("click", e => {
 document.addEventListener("DOMContentLoaded", async () => {
   const overlay = document.getElementById("loadingOverlay");
 
-  // Show username
   const user = localStorage.getItem("adminUser") || "admin";
   const role = localStorage.getItem("userRole")  || "";
   const sidebarUser = document.getElementById("sidebarUser");
@@ -1026,16 +1032,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (sidebarUser) sidebarUser.textContent = user;
   if (dashUser)    dashUser.textContent    = user;
 
-  // Show users nav only for owners
   if (role === "owner") {
     const nav = document.getElementById("usersNavItem");
     if (nav) nav.style.display = "";
-  }
-
-  // Dark mode pill sync
-  const pill = document.getElementById("darkPill");
-  if (pill && document.body.classList.contains("dark")) {
-    // CSS handles visual via body.dark .toggle-pill
   }
 
   try {
