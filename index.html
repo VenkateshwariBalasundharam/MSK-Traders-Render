@@ -9,6 +9,40 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <link rel="stylesheet" href="styles.css">
   <link rel="icon" href="data:,">
+  <style>
+    /* ── Field-wrap: uniform label + input cell ── */
+    .field-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .field-wrap .field-label-top {
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: var(--text-light);
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+    }
+    .field-wrap input,
+    .field-wrap select {
+      padding: 11px 14px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.88rem;
+      color: var(--text);
+      background: var(--input-bg);
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+      width: 100%;
+    }
+    .field-wrap input:focus,
+    .field-wrap select:focus {
+      border-color: var(--blue);
+      background: var(--card-bg);
+      box-shadow: 0 0 0 3px rgba(19,98,168,0.1);
+    }
+  </style>
 </head>
 <body>
 
@@ -307,57 +341,97 @@
 
         <div class="card">
           <div class="card-head"><h3><i class="fa-solid fa-plus-circle"></i> Add / Edit Product</h3></div>
-          <div class="form-grid">
-            <input type="text" id="productName" placeholder="Product Name *" list="productSuggestions" autocomplete="off">
-            <datalist id="productSuggestions">
-              <option value="Paracetamol"><option value="Amoxicillin"><option value="Ibuprofen">
-              <option value="Cetirizine"><option value="Metformin"><option value="Azithromycin">
-              <option value="Omeprazole"><option value="Atorvastatin"><option value="Pantoprazole">
-              <option value="Dolo 650"><option value="Aspirin"><option value="Ciprofloxacin">
-              <option value="Ranitidine"><option value="Amlodipine"><option value="Losartan">
-              <option value="Montelukast"><option value="Levothyroxine"><option value="Insulin">
-              <option value="Cough Syrup"><option value="Vitamin C"><option value="Vitamin D3">
-              <option value="Vitamin B12"><option value="Calcium Tablet"><option value="Iron Tablet">
-              <option value="Eye Drops"><option value="Ear Drops"><option value="Nasal Drops">
-            </datalist>
-            <input type="text" id="batchNo" placeholder="Batch No *">
-            <select id="supplier"><option value="">Select Supplier *</option></select>
-            <input type="number" id="purchasePrice" placeholder="Purchase Price (₹)" min="0" step="0.01">
-            <input type="number" id="sellingPrice"  placeholder="Selling Price (₹)"  min="0" step="0.01">
-            <input type="number" id="quantity"      placeholder="Quantity *"          min="0">
-            <div class="date-field">
-              <label class="date-label">Purchase Date</label>
+
+          <!-- ✅ FIXED: All fields use field-wrap for uniform label+input alignment -->
+          <div class="form-grid" style="padding:16px 20px">
+
+            <div class="field-wrap">
+              <label class="field-label-top">Product Name *</label>
+              <input type="text" id="productName" placeholder="Product Name" list="productSuggestions" autocomplete="off">
+              <datalist id="productSuggestions">
+                <option value="Paracetamol"><option value="Amoxicillin"><option value="Ibuprofen">
+                <option value="Cetirizine"><option value="Metformin"><option value="Azithromycin">
+                <option value="Omeprazole"><option value="Atorvastatin"><option value="Pantoprazole">
+                <option value="Dolo 650"><option value="Aspirin"><option value="Ciprofloxacin">
+                <option value="Ranitidine"><option value="Amlodipine"><option value="Losartan">
+                <option value="Montelukast"><option value="Levothyroxine"><option value="Insulin">
+                <option value="Cough Syrup"><option value="Vitamin C"><option value="Vitamin D3">
+                <option value="Vitamin B12"><option value="Calcium Tablet"><option value="Iron Tablet">
+                <option value="Eye Drops"><option value="Ear Drops"><option value="Nasal Drops">
+              </datalist>
+            </div>
+
+            <div class="field-wrap">
+              <label class="field-label-top">Batch No *</label>
+              <input type="text" id="batchNo" placeholder="Batch No">
+            </div>
+
+            <div class="field-wrap">
+              <label class="field-label-top">Supplier *</label>
+              <select id="supplier"><option value="">Select Supplier</option></select>
+            </div>
+
+            <div class="field-wrap">
+              <label class="field-label-top">Purchase Price (₹)</label>
+              <input type="number" id="purchasePrice" placeholder="0.00" min="0" step="0.01">
+            </div>
+
+            <div class="field-wrap">
+              <label class="field-label-top">Selling Price (₹)</label>
+              <input type="number" id="sellingPrice" placeholder="0.00" min="0" step="0.01">
+            </div>
+
+            <div class="field-wrap">
+              <label class="field-label-top">Quantity *</label>
+              <input type="number" id="quantity" placeholder="0" min="0">
+            </div>
+
+            <div class="field-wrap">
+              <label class="field-label-top">Purchase Date</label>
               <input type="date" id="purchaseDate">
             </div>
-            <div class="date-field">
-              <label class="date-label">Expiry Date *</label>
+
+            <div class="field-wrap">
+              <label class="field-label-top">Expiry Date *</label>
               <input type="date" id="expiryDate">
             </div>
-            <select id="category">
-              <option value="">Select Category</option>
-              <option value="Tablet">Tablet</option><option value="Syrup">Syrup</option>
-              <option value="Injection">Injection</option><option value="Capsule">Capsule</option>
-              <option value="Drops">Drops</option>
-              <option value="Ryles Tube - PAED (10,12)">Ryles Tube - PAED (10,12)</option>
-              <option value="Ryles Tube - PAED (16,18)">Ryles Tube - PAED (16,18)</option>
-              <option value="Spinal Needle - 23G">Spinal Needle - 23G</option>
-              <option value="Spinal Needle - 25G">Spinal Needle - 25G</option>
-              <option value="Spinal Needle - 26G">Spinal Needle - 26G</option>
-              <option value="Dispo Gloves">Dispo Gloves</option>
-              <option value="Single Use Dialyser FE/Equivalent">Single Use Dialyser FE/Equivalent</option>
-              <option value="Dispovan 50ml Syringe">Dispovan 50ml Syringe</option>
-              <option value="IV Cannula 26G Purple">IV Cannula 26G Purple</option>
-              <option value="AV Fistula Needle - 16G">AV Fistula Needle - 16G</option>
-              <option value="AV Fistula Needle - 17G">AV Fistula Needle - 17G</option>
-              <option value="Double Lumen Catheter 11.5 FR">Double Lumen Catheter 11.5 FR</option>
-              <option value="ICU Bag">ICU Bag</option>
-              <option value="Other">Other</option>
-            </select>
-            <select id="status">
-              <option value="Received">Received</option>
-              <option value="Pending">Pending</option>
-            </select>
+
+            <div class="field-wrap">
+              <label class="field-label-top">Category</label>
+              <select id="category">
+                <option value="">Select Category</option>
+                <option value="Tablet">Tablet</option>
+                <option value="Syrup">Syrup</option>
+                <option value="Injection">Injection</option>
+                <option value="Capsule">Capsule</option>
+                <option value="Drops">Drops</option>
+                <option value="Ryles Tube - PAED (10,12)">Ryles Tube - PAED (10,12)</option>
+                <option value="Ryles Tube - PAED (16,18)">Ryles Tube - PAED (16,18)</option>
+                <option value="Spinal Needle - 23G">Spinal Needle - 23G</option>
+                <option value="Spinal Needle - 25G">Spinal Needle - 25G</option>
+                <option value="Spinal Needle - 26G">Spinal Needle - 26G</option>
+                <option value="Dispo Gloves">Dispo Gloves</option>
+                <option value="Single Use Dialyser FE/Equivalent">Single Use Dialyser FE/Equivalent</option>
+                <option value="Dispovan 50ml Syringe">Dispovan 50ml Syringe</option>
+                <option value="IV Cannula 26G Purple">IV Cannula 26G Purple</option>
+                <option value="AV Fistula Needle - 16G">AV Fistula Needle - 16G</option>
+                <option value="AV Fistula Needle - 17G">AV Fistula Needle - 17G</option>
+                <option value="Double Lumen Catheter 11.5 FR">Double Lumen Catheter 11.5 FR</option>
+                <option value="ICU Bag">ICU Bag</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+
+            <div class="field-wrap">
+              <label class="field-label-top">Status</label>
+              <select id="status">
+                <option value="Received">Received</option>
+                <option value="Pending">Pending</option>
+              </select>
+            </div>
+
           </div>
+
           <div style="margin-top:14px;padding:0 20px 16px;display:flex;gap:10px;flex-wrap:wrap">
             <button class="btn btn-accent" id="addBtn" onclick="addProduct()"><i class="fa-solid fa-plus"></i> Add Product</button>
             <button class="btn btn-outline" id="cancelEdit" onclick="cancelEdit()" style="display:none"><i class="fa-solid fa-xmark"></i> Cancel</button>
