@@ -1,6 +1,6 @@
 /* ============================================
    MSK TRADERS - script.js
-   Connects to Node.js + SQL Server via REST API
+   Full update: Billing, Sales History, Users, Dark Mode
 ============================================ */
 
 const API = window.location.origin + "/api";
@@ -10,19 +10,17 @@ const API = window.location.origin + "/api";
 // ============================================
 let products         = [];
 let suppliers        = [];
+let sales            = [];
 let editingProductId = null;
-let stockChartInst, stockChart2Inst, categoryChartInst;
+let stockChartInst, stockChart2Inst, categoryChartInst, salesTrendChartInst;
+let currentBillSaleData = null; // for reprinting
 
 // ============================================
 //  API HELPER
 // ============================================
 async function apiCall(method, endpoint, body = null) {
-  const options = {
-    method,
-    headers: { "Content-Type": "application/json" }
-  };
+  const options = { method, headers: { "Content-Type": "application/json" } };
   if (body) options.body = JSON.stringify(body);
-
   const res = await fetch(API + endpoint, options);
   if (!res.ok) {
     let errMsg = "Request failed";
@@ -36,26 +34,19 @@ async function apiCall(method, endpoint, body = null) {
 //  DB STATUS CHECK
 // ============================================
 async function checkDBStatus() {
-  const dot      = document.getElementById("dbDot");
-  const text     = document.getElementById("dbStatusText");
+  const dot = document.getElementById("dbDot");
+  const text = document.getElementById("dbStatusText");
   const statusEl = document.getElementById("dbStatus");
-  if (!dot || !text || !statusEl) return;
-
+  if (!dot) return;
   try {
     const res = await fetch(API + "/status");
     if (res.ok) {
-      dot.style.color  = "#2ecc71";
-      text.textContent = "SQL Server Connected";
-      statusEl.classList.add("connected");
-      statusEl.classList.remove("error");
-    } else {
-      throw new Error("not ok");
-    }
+      dot.style.color = "#2ecc71"; text.textContent = "PostgreSQL Connected";
+      statusEl.classList.add("connected"); statusEl.classList.remove("error");
+    } else throw new Error();
   } catch {
-    dot.style.color  = "#e74c3c";
-    text.textContent = "DB Disconnected";
-    statusEl.classList.add("error");
-    statusEl.classList.remove("connected");
+    dot.style.color = "#e74c3c"; text.textContent = "DB Disconnected";
+    statusEl.classList.add("error"); statusEl.classList.remove("connected");
   }
 }
 
@@ -65,19 +56,12 @@ async function checkDBStatus() {
 function showToast(message, type = "success") {
   const existing = document.querySelector(".toast");
   if (existing) existing.remove();
-
   const toast = document.createElement("div");
   toast.className = "toast toast-" + type;
-  toast.innerHTML = `
-    <i class="fa-solid ${type === "success" ? "fa-check-circle" : "fa-circle-exclamation"}"></i>
-    ${message}
-  `;
+  toast.innerHTML = `<i class="fa-solid ${type === "success" ? "fa-check-circle" : "fa-circle-exclamation"}"></i> ${message}`;
   document.body.appendChild(toast);
   setTimeout(() => toast.classList.add("show"), 10);
-  setTimeout(() => {
-    toast.classList.remove("show");
-    setTimeout(() => toast.remove(), 300);
-  }, 3000);
+  setTimeout(() => { toast.classList.remove("show"); setTimeout(() => toast.remove(), 300); }, 3500);
 }
 
 // ============================================
@@ -86,20 +70,19 @@ function showToast(message, type = "success") {
 function showSection(name) {
   document.querySelectorAll(".section").forEach(s => s.classList.remove("active"));
   document.querySelectorAll(".nav-item").forEach(n => n.classList.remove("active"));
-
   const sec = document.getElementById("sec-" + name);
   if (sec) sec.classList.add("active");
-
   document.querySelectorAll(".nav-item").forEach(n => {
     if (n.getAttribute("onclick") && n.getAttribute("onclick").includes("'" + name + "'"))
       n.classList.add("active");
   });
-
   if (name === "dashboard") renderDashboard();
   if (name === "products")  { renderTable(); populateSupplierDropdown(); }
   if (name === "suppliers") renderSupplierTable();
   if (name === "stock")     renderStockSection();
-
+  if (name === "billing")   initBilling();
+  if (name === "sales")     loadSales();
+  if (name === "users")     loadUsers();
   closeSidebar();
 }
 
@@ -107,69 +90,45 @@ function toggleSidebar() {
   document.getElementById("sidebar").classList.toggle("open");
   document.getElementById("overlay").classList.toggle("visible");
 }
-
 function closeSidebar() {
   document.getElementById("sidebar").classList.remove("open");
   document.getElementById("overlay").classList.remove("visible");
 }
 
-function logout() {
-  localStorage.removeItem("loggedIn");
-  localStorage.removeItem("adminUser");
-  window.location.replace("login.html");
-}
-
 // ============================================
-//  LOAD PRODUCTS FROM SQL SERVER
+//  LOAD PRODUCTS
 // ============================================
 async function loadProducts() {
   try {
     const data = await apiCall("GET", "/products");
-
-    console.log("RAW DATA FROM DB:", data); // Debug — check F12 Console
-
-    // Safely map all possible column name formats from SQL Server
     products = data.map(p => ({
       id:            p.id,
-      name:          p.name           || p.Name           || "",
-      batch:         p.batch_no       || p.batchNo        || p.batch   || "",
-      supplier:      p.supplier       || p.Supplier       || "",
-      category:      p.category       || p.Category       || "",
-      quantity:      parseInt(p.quantity || p.Quantity || 0),
-      purchasePrice: parseFloat(p.purchase_price || p.purchasePrice || 0),
-      sellingPrice:  parseFloat(p.selling_price  || p.sellingPrice  || 0),
-      purchaseDate:  formatDate(p.purchase_date  || p.purchaseDate  || ""),
-      expiry:        formatDate(p.expiry_date || p.expiryDate || p.expiry || ""),
-      status:        p.status         || p.Status         || "Received"
+      name:          p.name           || "",
+      batch:         p.batch_no       || "",
+      supplier:      p.supplier       || "",
+      category:      p.category       || "",
+      quantity:      parseInt(p.quantity || 0),
+      purchasePrice: parseFloat(p.purchase_price || 0),
+      sellingPrice:  parseFloat(p.selling_price  || 0),
+      purchaseDate:  formatDate(p.purchase_date  || ""),
+      expiry:        formatDate(p.expiry_date     || ""),
+      status:        p.status         || "Received"
     }));
-
     renderTable();
     updateDashboardCards();
     showExpiryAlerts();
     showLowStockSuggestions();
-
   } catch (err) {
-    console.error("loadProducts error:", err);
     showToast("Failed to load products: " + err.message, "error");
-
-    // Show error in table
     const tbody = document.querySelector("#productTable tbody");
-    if (tbody) {
-      tbody.innerHTML = `<tr><td colspan="12" class="table-loading" style="color:var(--red)">
-        ⚠ Could not load from database. Check server.js is running.
-      </td></tr>`;
-    }
+    if (tbody) tbody.innerHTML = `<tr><td colspan="12" class="table-loading" style="color:var(--red)">⚠ Could not load from database.</td></tr>`;
   }
 }
 
-// Helper: format any date value to YYYY-MM-DD
 function formatDate(val) {
   if (!val) return "";
-  // Already YYYY-MM-DD
   if (typeof val === "string" && val.length === 10 && val.includes("-")) return val;
-  // ISO string like 2025-12-31T00:00:00.000Z
   if (typeof val === "string" && val.includes("T")) return val.split("T")[0];
-  // Date object
   if (val instanceof Date) return val.toISOString().split("T")[0];
   return String(val).split("T")[0];
 }
@@ -189,22 +148,13 @@ async function addProduct() {
   const sellingPrice  = parseFloat(document.getElementById("sellingPrice").value)  || 0;
 
   if (!name || !batch || !supplier || isNaN(quantity) || !expiry) {
-    showToast("Please fill all required fields (*)", "error");
-    return;
+    showToast("Please fill all required fields (*)", "error"); return;
   }
 
-  const payload = {
-    name,
-    batch_no:       batch,
-    supplier,
-    category,
-    quantity,
-    purchase_price: purchasePrice,
-    selling_price:  sellingPrice,
-    purchase_date:  document.getElementById("purchaseDate").value || null,
-    expiry_date:    expiry,
-    status
-  };
+  const payload = { name, batch_no: batch, supplier, category, quantity,
+    purchase_price: purchasePrice, selling_price: sellingPrice,
+    purchase_date: document.getElementById("purchaseDate").value || null,
+    expiry_date: expiry, status };
 
   const btn = document.getElementById("addBtn");
   btn.disabled = true;
@@ -220,23 +170,16 @@ async function addProduct() {
       await apiCall("POST", "/products", payload);
       showToast("Product saved to database!");
     }
-
     clearProductForm();
     btn.innerHTML = '<i class="fa-solid fa-plus"></i> Add Product';
     await loadProducts();
-
   } catch (err) {
-    console.error("addProduct error:", err);
     showToast("Error saving product: " + err.message, "error");
-    btn.innerHTML = '<i class="fa-solid fa-plus"></i> Add Product';
   } finally {
     btn.disabled = false;
   }
 }
 
-// ============================================
-//  DELETE PRODUCT
-// ============================================
 async function deleteProduct(id) {
   if (!confirm("Delete this product from the database?")) return;
   try {
@@ -248,13 +191,9 @@ async function deleteProduct(id) {
   }
 }
 
-// ============================================
-//  EDIT PRODUCT — fill form
-// ============================================
 function editProduct(id) {
   const p = products.find(p => p.id === id);
   if (!p) return;
-
   document.getElementById("productName").value   = p.name;
   document.getElementById("batchNo").value       = p.batch;
   document.getElementById("category").value      = p.category || "";
@@ -264,21 +203,15 @@ function editProduct(id) {
   document.getElementById("status").value        = p.status;
   document.getElementById("purchasePrice").value = p.purchasePrice;
   document.getElementById("sellingPrice").value  = p.sellingPrice;
-
   populateSupplierDropdown();
   document.getElementById("supplier").value = p.supplier;
-
   editingProductId = id;
   document.getElementById("addBtn").innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Update Product';
   document.getElementById("cancelEdit").style.display = "inline-flex";
-
   showSection("products");
   document.querySelector("#sec-products .card").scrollIntoView({ behavior: "smooth" });
 }
 
-// ============================================
-//  CANCEL EDIT
-// ============================================
 function cancelEdit() {
   editingProductId = null;
   clearProductForm();
@@ -286,9 +219,6 @@ function cancelEdit() {
   document.getElementById("cancelEdit").style.display = "none";
 }
 
-// ============================================
-//  CLEAR PRODUCT FORM
-// ============================================
 function clearProductForm() {
   ["productName","batchNo","purchasePrice","sellingPrice","quantity","purchaseDate","expiryDate"]
     .forEach(id => { document.getElementById(id).value = ""; });
@@ -297,9 +227,6 @@ function clearProductForm() {
   document.getElementById("status").value   = "Received";
 }
 
-// ============================================
-//  FILTER / SEARCH PRODUCTS
-// ============================================
 function filterProducts() {
   const q = document.getElementById("searchInput").value.toLowerCase();
   document.querySelectorAll("#productTable tbody tr").forEach(row => {
@@ -314,122 +241,75 @@ function renderTable() {
   const tbody = document.querySelector("#productTable tbody");
   if (!tbody) return;
   tbody.innerHTML = "";
-
   if (!products.length) {
-    tbody.innerHTML = `<tr>
-      <td colspan="13" class="table-loading">No products found in database.</td>
-    </tr>`;
+    tbody.innerHTML = `<tr><td colspan="13" class="table-loading">No products found in database.</td></tr>`;
     return;
   }
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
+  const today = new Date(); today.setHours(0,0,0,0);
   products.forEach((p, i) => {
-    const expDate   = p.expiry ? new Date(p.expiry) : null;
-    const diffDays  = expDate ? (expDate - today) / (1000 * 60 * 60 * 24) : null;
-    const expiryClass = diffDays === null ? "" :
-                        diffDays < 0  ? "expired"  :
-                        diffDays <= 30 ? "expiring" : "";
-
-    const profit    = (p.sellingPrice - p.purchasePrice).toFixed(2);
+    const expDate = p.expiry ? new Date(p.expiry) : null;
+    const diffDays = expDate ? (expDate - today) / (1000*60*60*24) : null;
+    const expiryClass = diffDays === null ? "" : diffDays < 0 ? "expired" : diffDays <= 30 ? "expiring" : "";
+    const profit = (p.sellingPrice - p.purchasePrice).toFixed(2);
     const statusTag = p.status === "Pending"
       ? `<span class="tag-pending">Pending</span>`
       : `<span class="tag-received">Received</span>`;
-
     const row = document.createElement("tr");
     row.innerHTML = `
-      <td>${i + 1}</td>
+      <td>${i+1}</td>
       <td><strong>${p.name}</strong></td>
       <td>${p.batch}</td>
       <td>${p.supplier}</td>
-      <td>${p.category || "—"}</td>
+      <td>${p.category||"—"}</td>
       <td>${p.quantity}</td>
       <td>₹${p.purchasePrice.toFixed(2)}</td>
       <td>₹${p.sellingPrice.toFixed(2)}</td>
       <td>₹${profit}</td>
-      <td>${p.purchaseDate || "—"}</td>
-      <td class="${expiryClass}">${p.expiry || "—"}</td>
+      <td>${p.purchaseDate||"—"}</td>
+      <td class="${expiryClass}">${p.expiry||"—"}</td>
       <td>${statusTag}</td>
-      <td>
-        <div class="action-btns">
-          <button class="btn btn-sm btn-edit" onclick="editProduct(${p.id})">
-            <i class="fa-solid fa-pen"></i>
-          </button>
-          <button class="btn btn-sm btn-del" onclick="deleteProduct(${p.id})">
-            <i class="fa-solid fa-trash"></i>
-          </button>
-        </div>
-      </td>
-    `;
+      <td><div class="action-btns">
+        <button class="btn btn-sm btn-edit" onclick="editProduct(${p.id})"><i class="fa-solid fa-pen"></i></button>
+        <button class="btn btn-sm btn-del"  onclick="deleteProduct(${p.id})"><i class="fa-solid fa-trash"></i></button>
+      </div></td>`;
     tbody.appendChild(row);
   });
 }
 
 // ============================================
-//  LOAD SUPPLIERS FROM SQL SERVER
+//  SUPPLIERS
 // ============================================
 async function loadSuppliers() {
   try {
     const data = await apiCall("GET", "/suppliers");
-
-    console.log("RAW SUPPLIERS FROM DB:", data); // Debug
-
-    suppliers = data.map(s => ({
-      id:      s.id,
-      name:    s.name    || s.Name    || "",
-      contact: s.contact || s.Contact || ""
-    }));
-
+    suppliers = data.map(s => ({ id: s.id, name: s.name||"", contact: s.contact||"" }));
     renderSupplierTable();
     populateSupplierDropdown();
-
   } catch (err) {
-    console.error("loadSuppliers error:", err);
     showToast("Failed to load suppliers: " + err.message, "error");
   }
 }
 
-// ============================================
-//  ADD SUPPLIER
-// ============================================
 async function addSupplier() {
   const name    = document.getElementById("supplierName").value.trim();
   const contact = document.getElementById("supplierContact").value.trim();
-
-  if (!name || !contact) {
-    showToast("Please fill all supplier fields.", "error");
-    return;
-  }
-
+  if (!name || !contact) { showToast("Please fill all supplier fields.", "error"); return; }
   try {
     await apiCall("POST", "/suppliers", { name, contact });
-    document.getElementById("supplierName").value    = "";
+    document.getElementById("supplierName").value = "";
     document.getElementById("supplierContact").value = "";
-    showToast("Supplier saved to database!");
-    await loadSuppliers();
-  } catch (err) {
-    showToast("Error saving supplier: " + err.message, "error");
-  }
+    showToast("Supplier saved!"); await loadSuppliers();
+  } catch (err) { showToast("Error: " + err.message, "error"); }
 }
 
-// ============================================
-//  DELETE SUPPLIER
-// ============================================
 async function deleteSupplier(id) {
-  if (!confirm("Remove this supplier from the database?")) return;
+  if (!confirm("Remove this supplier?")) return;
   try {
     await apiCall("DELETE", "/suppliers/" + id);
-    showToast("Supplier removed.");
-    await loadSuppliers();
-  } catch (err) {
-    showToast("Delete failed: " + err.message, "error");
-  }
+    showToast("Supplier removed."); await loadSuppliers();
+  } catch (err) { showToast("Delete failed: " + err.message, "error"); }
 }
 
-// ============================================
-//  FILTER SUPPLIERS
-// ============================================
 function filterSuppliers() {
   const q = document.getElementById("supplierSearch").value.toLowerCase();
   document.querySelectorAll("#supplierTable tbody tr").forEach(row => {
@@ -437,51 +317,35 @@ function filterSuppliers() {
   });
 }
 
-// ============================================
-//  RENDER SUPPLIERS TABLE
-// ============================================
 function renderSupplierTable() {
   const tbody = document.querySelector("#supplierTable tbody");
   if (!tbody) return;
   tbody.innerHTML = "";
-
   if (!suppliers.length) {
-    tbody.innerHTML = `<tr>
-      <td colspan="4" class="table-loading">No suppliers found in database.</td>
-    </tr>`;
+    tbody.innerHTML = `<tr><td colspan="4" class="table-loading">No suppliers found.</td></tr>`;
     return;
   }
-
   suppliers.forEach((s, i) => {
     const row = document.createElement("tr");
     row.innerHTML = `
-      <td>${i + 1}</td>
+      <td>${i+1}</td>
       <td><strong>${s.name}</strong></td>
       <td>${s.contact}</td>
-      <td>
-        <div class="action-btns">
-          <button class="btn btn-sm btn-del" onclick="deleteSupplier(${s.id})">
-            <i class="fa-solid fa-trash"></i>
-          </button>
-        </div>
-      </td>
-    `;
+      <td><div class="action-btns">
+        <button class="btn btn-sm btn-del" onclick="deleteSupplier(${s.id})"><i class="fa-solid fa-trash"></i></button>
+      </div></td>`;
     tbody.appendChild(row);
   });
 }
 
-// ============================================
-//  POPULATE SUPPLIER DROPDOWN IN PRODUCT FORM
-// ============================================
 function populateSupplierDropdown() {
   const select = document.getElementById("supplier");
   if (!select) return;
   const current = select.value;
   select.innerHTML = '<option value="">Select Supplier *</option>';
   suppliers.forEach(s => {
-    const opt       = document.createElement("option");
-    opt.value       = s.name;
-    opt.textContent = s.name;
+    const opt = document.createElement("option");
+    opt.value = s.name; opt.textContent = s.name;
     select.appendChild(opt);
   });
   if (current) select.value = current;
@@ -491,84 +355,77 @@ function populateSupplierDropdown() {
 //  DASHBOARD STATS
 // ============================================
 function getStats() {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const today = new Date(); today.setHours(0,0,0,0);
   let low = 0, expiring = 0, expired = 0;
-
   products.forEach(p => {
     if (p.quantity < 50) low++;
     if (p.expiry) {
-      const diff = (new Date(p.expiry) - today) / (1000 * 60 * 60 * 24);
-      if (diff < 0)        expired++;
-      else if (diff <= 30) expiring++;
+      const diff = (new Date(p.expiry) - today) / (1000*60*60*24);
+      if (diff < 0) expired++; else if (diff <= 30) expiring++;
     }
   });
-
   return { total: products.length, low, expiring, expired };
 }
 
 function updateDashboardCards() {
   const s = getStats();
-  const map = {
-    totalProducts: s.total,
-    lowStock:      s.low,
-    expiringSoon:  s.expiring,
-    expiredCount:  s.expired
-  };
-  Object.entries(map).forEach(([id, val]) => {
-    const el = document.getElementById(id);
-    if (el) el.textContent = val;
-  });
+  const map = { totalProducts: s.total, lowStock: s.low, expiringSoon: s.expiring, expiredCount: s.expired };
+  Object.entries(map).forEach(([id, val]) => { const el = document.getElementById(id); if (el) el.textContent = val; });
 }
 
 function showExpiryAlerts() {
-  const today  = new Date();
-  today.setHours(0, 0, 0, 0);
+  const today = new Date(); today.setHours(0,0,0,0);
   const alerts = [];
-
   products.forEach(p => {
     if (!p.expiry) return;
-    const diff = (new Date(p.expiry) - today) / (1000 * 60 * 60 * 24);
-    if (diff < 0)        alerts.push(`${p.name} (Expired)`);
-    else if (diff <= 30) alerts.push(`${p.name} (~${Math.round(diff)} days left)`);
+    const diff = (new Date(p.expiry) - today) / (1000*60*60*24);
+    if (diff < 0) alerts.push(`${p.name} (Expired)`);
+    else if (diff <= 30) alerts.push(`${p.name} (~${Math.round(diff)}d)`);
   });
-
   const el = document.getElementById("expiryAlert");
   if (!el) return;
-  if (alerts.length) {
-    el.style.display = "block";
-    el.innerHTML = `⚠ Expiry Alerts: ${alerts.join(" • ")}`;
-  } else {
-    el.style.display = "none";
-  }
+  if (alerts.length) { el.style.display = "block"; el.innerHTML = `⚠ Expiry Alerts: ${alerts.join(" • ")}`; }
+  else el.style.display = "none";
 }
 
 function showLowStockSuggestions() {
   const box = document.getElementById("lowStockSuggestions");
   if (!box) return;
-
   const low = products.filter(p => p.quantity < 50);
-
   if (!low.length) {
-    box.innerHTML = `<div class="reorder-empty">
-      <i class="fa-solid fa-check-circle"></i> All medicines have sufficient stock.
-    </div>`;
+    box.innerHTML = `<div class="reorder-empty"><i class="fa-solid fa-check-circle"></i> All medicines have sufficient stock.</div>`;
     return;
   }
-
   box.innerHTML = low.map(p => `
     <div class="reorder-item">
       <span class="name">${p.name}</span>
       <span class="qty">Qty: ${p.quantity}</span>
-    </div>
-  `).join("");
+    </div>`).join("");
 }
 
-function renderDashboard() {
+async function loadSalesSummary() {
+  try {
+    const data = await apiCall("GET", "/sales/summary");
+    const fmt = v => "₹" + parseFloat(v).toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    const setEl = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    setEl("todaySales",   fmt(data.today?.today_sales || 0));
+    setEl("monthSales",   fmt(data.month?.month_sales || 0));
+    setEl("totalSalesAll",fmt(data.total?.total_sales || 0));
+    setEl("todayBills",   data.today?.today_bills || 0);
+    // Sales section cards
+    setEl("sToday", fmt(data.today?.today_sales || 0));
+    setEl("sMonth", fmt(data.month?.month_sales || 0));
+    setEl("sBills", data.today?.today_bills || 0);
+  } catch {}
+}
+
+async function renderDashboard() {
   updateDashboardCards();
   showExpiryAlerts();
   showLowStockSuggestions();
   renderStockChart("stockChart");
+  await loadSalesSummary();
+  renderSalesTrendChart();
 }
 
 // ============================================
@@ -577,69 +434,76 @@ function renderDashboard() {
 function renderStockChart(canvasId) {
   const ctx = document.getElementById(canvasId);
   if (!ctx) return;
-
-  if (canvasId === "stockChart"  && stockChartInst)  stockChartInst.destroy();
-  if (canvasId === "stockChart2" && stockChart2Inst) stockChart2Inst.destroy();
-
+  if (canvasId === "stockChart"  && stockChartInst)  { stockChartInst.destroy();  stockChartInst = null; }
+  if (canvasId === "stockChart2" && stockChart2Inst) { stockChart2Inst.destroy(); stockChart2Inst = null; }
   const s = getStats();
-
   const inst = new Chart(ctx, {
     type: "bar",
     data: {
       labels: ["Total", "Low Stock", "Expiring Soon", "Expired"],
-      datasets: [{
-        label: "Stock Overview",
-        data: [s.total, s.low, s.expiring, s.expired],
-        backgroundColor: ["#1362a8", "#f1c40f", "#e67e22", "#e74c3c"],
-        borderRadius: 6,
-        borderSkipped: false
-      }]
+      datasets: [{ label: "Stock Overview", data: [s.total, s.low, s.expiring, s.expired],
+        backgroundColor: ["#1362a8","#f1c40f","#e67e22","#e74c3c"],
+        borderRadius: 8, borderSkipped: false }]
     },
     options: {
-      responsive: true,
-      maintainAspectRatio: false,
+      responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false } },
-      scales: {
-        y: { beginAtZero: true, grid: { color: "#f0f0f0" } },
-        x: { grid: { display: false } }
-      }
+      scales: { y: { beginAtZero: true, grid: { color: "rgba(0,0,0,0.05)" } }, x: { grid: { display: false } } }
     }
   });
-
   if (canvasId === "stockChart")  stockChartInst  = inst;
   if (canvasId === "stockChart2") stockChart2Inst = inst;
+}
+
+async function renderSalesTrendChart() {
+  const ctx = document.getElementById("salesTrendChart");
+  if (!ctx) return;
+  if (salesTrendChartInst) { salesTrendChartInst.destroy(); salesTrendChartInst = null; }
+  try {
+    const data = await apiCall("GET", "/sales/monthly");
+    salesTrendChartInst = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels: data.map(d => d.month),
+        datasets: [{
+          label: "Sales (₹)",
+          data: data.map(d => parseFloat(d.total||0)),
+          borderColor: "#27ae60", backgroundColor: "rgba(39,174,96,0.1)",
+          tension: 0.4, fill: true, pointBackgroundColor: "#27ae60",
+          pointRadius: 5, borderWidth: 2
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: { beginAtZero: true, grid: { color: "rgba(0,0,0,0.05)" },
+            ticks: { callback: v => "₹" + v.toLocaleString("en-IN") } },
+          x: { grid: { display: false } }
+        }
+      }
+    });
+  } catch {}
 }
 
 function renderCategoryChart() {
   const ctx = document.getElementById("categoryChart");
   if (!ctx) return;
-  if (categoryChartInst) categoryChartInst.destroy();
-
+  if (categoryChartInst) { categoryChartInst.destroy(); categoryChartInst = null; }
   const cats = {};
-  products.forEach(p => {
-    const c = p.category || "Other";
-    cats[c] = (cats[c] || 0) + 1;
-  });
-
+  products.forEach(p => { const c = p.category || "Other"; cats[c] = (cats[c]||0) + 1; });
   if (!Object.keys(cats).length) return;
-
   categoryChartInst = new Chart(ctx, {
     type: "doughnut",
     data: {
       labels: Object.keys(cats),
-      datasets: [{
-        data: Object.values(cats),
-        backgroundColor: ["#1362a8","#f5a623","#27ae60","#e74c3c","#9b59b6","#16a085"],
-        borderWidth: 2,
-        borderColor: "#fff"
-      }]
+      datasets: [{ data: Object.values(cats),
+        backgroundColor: ["#1362a8","#f5a623","#27ae60","#e74c3c","#9b59b6","#16a085","#e67e22"],
+        borderWidth: 2, borderColor: "var(--card-bg)" }]
     },
     options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { position: "bottom", labels: { font: { size: 12 } } }
-      }
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: "bottom", labels: { font: { size: 12 }, padding: 12 } } }
     }
   });
 }
@@ -648,43 +512,437 @@ function renderStockSection() {
   updateDashboardCards();
   renderStockChart("stockChart2");
   renderCategoryChart();
-
   const container = document.getElementById("lowStockTable");
   if (!container) return;
-
   const low = products.filter(p => p.quantity < 50);
-
   if (!low.length) {
-    container.innerHTML = `<p style="padding:16px;color:var(--green);font-weight:600">
-      ✅ All stock levels are healthy.
-    </p>`;
+    container.innerHTML = `<p style="padding:20px;color:var(--green);font-weight:600">✅ All stock levels are healthy.</p>`;
     return;
   }
-
   container.innerHTML = `
     <table>
-      <thead>
+      <thead><tr><th>#</th><th>Product</th><th>Supplier</th><th>Qty</th><th>Expiry</th></tr></thead>
+      <tbody>${low.map((p,i) => `
         <tr>
-          <th>#</th>
-          <th>Product</th>
-          <th>Supplier</th>
-          <th>Qty</th>
-          <th>Expiry</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${low.map((p, i) => `
-          <tr>
-            <td>${i + 1}</td>
-            <td><strong>${p.name}</strong></td>
-            <td>${p.supplier}</td>
-            <td style="color:var(--red);font-weight:700">${p.quantity}</td>
-            <td>${p.expiry || "—"}</td>
-          </tr>
-        `).join("")}
+          <td>${i+1}</td>
+          <td><strong>${p.name}</strong></td>
+          <td>${p.supplier}</td>
+          <td style="color:var(--red);font-weight:700">${p.quantity}</td>
+          <td>${p.expiry||"—"}</td>
+        </tr>`).join("")}
       </tbody>
-    </table>
-  `;
+    </table>`;
+}
+
+// ============================================
+//  BILLING MODULE
+// ============================================
+let billRows = [];
+
+function initBilling() {
+  if (billRows.length === 0) addBillRow();
+  updateBillSummary();
+}
+
+function addBillRow() {
+  const id = Date.now();
+  billRows.push({ id, product_id: null, product_name: "", batch_no: "", unit_price: 0, quantity: 1, discount_pct: 0 });
+  renderBillRows();
+}
+
+function removeBillRow(id) {
+  billRows = billRows.filter(r => r.id !== id);
+  if (!billRows.length) addBillRow();
+  renderBillRows();
+  updateBillSummary();
+}
+
+function renderBillRows() {
+  const container = document.getElementById("billItemsContainer");
+  if (!container) return;
+  container.innerHTML = "";
+  billRows.forEach(row => {
+    const div = document.createElement("div");
+    div.className = "bill-item-row";
+    div.dataset.rowId = row.id;
+    div.innerHTML = `
+      <div class="product-search-wrap">
+        <input type="text" class="bill-product-input" placeholder="Search product..." value="${row.product_name}"
+          oninput="searchBillProduct(${row.id}, this.value)"
+          onfocus="openProductDropdown(${row.id})"
+          autocomplete="off">
+        <div class="product-dropdown" id="pd-${row.id}">
+          ${buildProductDropdownHTML(row.id, "")}
+        </div>
+      </div>
+      <input type="number" placeholder="Qty" min="1" value="${row.quantity}"
+        onchange="updateBillRow(${row.id},'quantity',this.value)">
+      <input type="number" placeholder="Price ₹" min="0" step="0.01" value="${row.unit_price||""}"
+        onchange="updateBillRow(${row.id},'unit_price',this.value)">
+      <input type="number" placeholder="Disc%" min="0" max="100" step="0.01" value="${row.discount_pct||""}"
+        onchange="updateBillRow(${row.id},'discount_pct',this.value)">
+      <button class="bill-remove-btn" onclick="removeBillRow(${row.id})"><i class="fa-solid fa-xmark"></i></button>`;
+    container.appendChild(div);
+  });
+}
+
+function buildProductDropdownHTML(rowId, query) {
+  const q = query.toLowerCase();
+  const filtered = products.filter(p =>
+    p.name.toLowerCase().includes(q) || p.batch.toLowerCase().includes(q)
+  ).slice(0, 12);
+  if (!filtered.length) return `<div class="product-dropdown-item" style="color:var(--text-light)">No products found</div>`;
+  return filtered.map(p => `
+    <div class="product-dropdown-item" onclick="selectBillProduct(${rowId}, ${p.id})">
+      <div>
+        <strong>${p.name}</strong>
+        <div class="stock">Batch: ${p.batch} &nbsp;|&nbsp; Stock: ${p.quantity}</div>
+      </div>
+      <span class="price">₹${p.sellingPrice.toFixed(2)}</span>
+    </div>`).join("");
+}
+
+function searchBillProduct(rowId, query) {
+  const dd = document.getElementById("pd-" + rowId);
+  if (dd) { dd.innerHTML = buildProductDropdownHTML(rowId, query); dd.classList.add("open"); }
+  const row = billRows.find(r => r.id === rowId);
+  if (row) { row.product_name = query; row.product_id = null; }
+}
+
+function openProductDropdown(rowId) {
+  const dd = document.getElementById("pd-" + rowId);
+  if (dd) { dd.innerHTML = buildProductDropdownHTML(rowId, ""); dd.classList.add("open"); }
+}
+
+function selectBillProduct(rowId, productId) {
+  const p   = products.find(p => p.id === productId);
+  const row = billRows.find(r => r.id === rowId);
+  if (!p || !row) return;
+  row.product_id   = p.id;
+  row.product_name = p.name;
+  row.batch_no     = p.batch;
+  row.unit_price   = p.sellingPrice;
+  // Close dropdown and update input
+  const dd = document.getElementById("pd-" + rowId);
+  if (dd) dd.classList.remove("open");
+  renderBillRows();
+  updateBillSummary();
+}
+
+function updateBillRow(rowId, field, value) {
+  const row = billRows.find(r => r.id === rowId);
+  if (row) {
+    row[field] = field === "quantity" ? parseInt(value)||1
+               : field === "unit_price" || field === "discount_pct" ? parseFloat(value)||0
+               : value;
+    updateBillSummary();
+  }
+}
+
+function updateBillSummary() {
+  let subtotal = 0;
+  billRows.forEach(row => {
+    const line = row.quantity * row.unit_price * (1 - (row.discount_pct||0)/100);
+    subtotal += line;
+  });
+  const discount  = parseFloat(document.getElementById("billDiscount")?.value) || 0;
+  const total     = Math.max(0, subtotal - discount);
+  const fmt = v => "₹" + v.toFixed(2);
+  const setSafe = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  setSafe("billSubtotal", fmt(subtotal));
+  setSafe("billTotal",    fmt(total));
+}
+
+function clearBill() {
+  billRows = [];
+  addBillRow();
+  const cust = document.getElementById("billCustomer");
+  const phone = document.getElementById("billPhone");
+  const disc  = document.getElementById("billDiscount");
+  if (cust)  cust.value  = "";
+  if (phone) phone.value = "";
+  if (disc)  disc.value  = "0";
+  updateBillSummary();
+}
+
+async function finalizeBill() {
+  // Validate rows
+  const validRows = billRows.filter(r => r.product_id && r.quantity > 0);
+  if (!validRows.length) {
+    showToast("Please add at least one product to the bill.", "error"); return;
+  }
+  // Check stock
+  for (const row of validRows) {
+    const p = products.find(p => p.id === row.product_id);
+    if (p && row.quantity > p.quantity) {
+      showToast(`Insufficient stock for ${p.name}. Available: ${p.quantity}`, "error"); return;
+    }
+  }
+
+  const customer = document.getElementById("billCustomer")?.value.trim() || "Walk-in Customer";
+  const discount = parseFloat(document.getElementById("billDiscount")?.value) || 0;
+  const sold_by  = localStorage.getItem("adminUser") || "admin";
+
+  const items = validRows.map(r => ({
+    product_id: r.product_id, product_name: r.product_name, batch_no: r.batch_no,
+    quantity: r.quantity, unit_price: r.unit_price, discount_pct: r.discount_pct
+  }));
+
+  try {
+    const data = await apiCall("POST", "/sales", { customer, items, discount, sold_by });
+    showToast("Bill created successfully! Printing...");
+    printBill(data.sale, data.items);
+    await loadProducts(); // Refresh stock
+    clearBill();
+  } catch (err) {
+    showToast("Error creating bill: " + err.message, "error");
+  }
+}
+
+function printBill(sale, items) {
+  const rows = items.map((item, i) => `
+    <tr>
+      <td>${i+1}</td><td>${item.product_name}</td><td>${item.batch_no||"—"}</td>
+      <td>${item.quantity}</td><td>₹${parseFloat(item.unit_price).toFixed(2)}</td>
+      <td>${item.discount_pct||0}%</td><td>₹${parseFloat(item.line_total||item._lineTotal||0).toFixed(2)}</td>
+    </tr>`).join("");
+
+  const win = window.open("","_blank");
+  win.document.write(`<!DOCTYPE html><html><head>
+    <title>Bill – ${sale.bill_no}</title>
+    <style>
+      body { font-family: Arial, sans-serif; padding: 28px; color: #1a2b45; max-width: 720px; margin: auto; }
+      .header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:20px; padding-bottom:16px; border-bottom:2px solid #0b2545; }
+      h1 { font-size:26px; letter-spacing:3px; color:#0b2545; margin:0; }
+      .sub { color:#6b7a99; font-size:13px; margin-top:4px; }
+      .bill-meta { text-align:right; font-size:13px; color:#555; }
+      .bill-meta strong { display:block; font-size:15px; color:#0b2545; }
+      table { width:100%; border-collapse:collapse; margin-top:16px; }
+      th { background:#0b2545; color:white; padding:10px; text-align:left; font-size:12px; }
+      td { padding:9px 10px; border-bottom:1px solid #dde3f0; font-size:13px; }
+      tr:hover { background:#f7f9ff; }
+      .totals { margin-top:18px; }
+      .total-row { display:flex; justify-content:space-between; padding:6px 0; font-size:14px; }
+      .total-row.grand { font-size:17px; font-weight:700; color:#27ae60; border-top:2px solid #dde3f0; padding-top:10px; margin-top:6px; }
+      .footer { margin-top:28px; text-align:center; font-size:12px; color:#aaa; border-top:1px dashed #ccc; padding-top:14px; }
+      @media print { button { display:none; } }
+    </style>
+  </head><body>
+  <div class="header">
+    <div>
+      <h1>MSK TRADERS</h1>
+      <div class="sub">Pharmacy Management System</div>
+    </div>
+    <div class="bill-meta">
+      <strong>${sale.bill_no}</strong>
+      ${new Date(sale.createdAt||Date.now()).toLocaleString("en-IN")}<br>
+      Customer: <strong>${sale.customer}</strong><br>
+      Sold by: ${sale.sold_by}
+    </div>
+  </div>
+  <button onclick="window.print()" style="padding:8px 18px;background:#0b2545;color:white;border:none;border-radius:6px;cursor:pointer;margin-bottom:16px">
+    🖨 Print Receipt
+  </button>
+  <table>
+    <thead><tr><th>#</th><th>Product</th><th>Batch</th><th>Qty</th><th>Price</th><th>Disc%</th><th>Total</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <div class="totals">
+    <div class="total-row"><span>Subtotal</span><span>₹${parseFloat(sale.total_amount).toFixed(2)}</span></div>
+    <div class="total-row"><span>Discount</span><span>–₹${parseFloat(sale.discount||0).toFixed(2)}</span></div>
+    <div class="total-row grand"><span>TOTAL PAID</span><span>₹${parseFloat(sale.final_amount).toFixed(2)}</span></div>
+  </div>
+  <div class="footer">Thank you for your purchase! • MSK Traders</div>
+  </body></html>`);
+  win.document.close();
+}
+
+// ============================================
+//  SALES HISTORY
+// ============================================
+async function loadSales() {
+  await loadSalesSummary();
+  const tbody = document.querySelector("#salesTable tbody");
+  if (tbody) tbody.innerHTML = `<tr><td colspan="10" class="table-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</td></tr>`;
+  try {
+    let endpoint = "/sales";
+    const from = document.getElementById("salesFrom")?.value;
+    const to   = document.getElementById("salesTo")?.value;
+    if (from && to) endpoint += `?from=${from}&to=${to}`;
+    sales = await apiCall("GET", endpoint);
+    renderSalesTable();
+  } catch (err) {
+    showToast("Failed to load sales: " + err.message, "error");
+    if (tbody) tbody.innerHTML = `<tr><td colspan="10" class="table-loading" style="color:var(--red)">⚠ Error loading sales.</td></tr>`;
+  }
+}
+
+function clearSalesFilter() {
+  const from = document.getElementById("salesFrom");
+  const to   = document.getElementById("salesTo");
+  if (from) from.value = ""; if (to) to.value = "";
+  loadSales();
+}
+
+function filterSalesTable() {
+  const q = document.getElementById("salesSearch").value.toLowerCase();
+  document.querySelectorAll("#salesTable tbody tr").forEach(row => {
+    row.style.display = row.textContent.toLowerCase().includes(q) ? "" : "none";
+  });
+}
+
+function renderSalesTable() {
+  const tbody = document.querySelector("#salesTable tbody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  if (!sales.length) {
+    tbody.innerHTML = `<tr><td colspan="10" class="table-loading">No sales records found.</td></tr>`;
+    return;
+  }
+  sales.forEach((s, i) => {
+    const row = document.createElement("tr");
+    const dt  = new Date(s.createdAt).toLocaleString("en-IN", { dateStyle:"short", timeStyle:"short" });
+    row.innerHTML = `
+      <td>${i+1}</td>
+      <td><strong>${s.bill_no}</strong></td>
+      <td>${s.customer}</td>
+      <td>—</td>
+      <td>₹${parseFloat(s.total_amount).toFixed(2)}</td>
+      <td>₹${parseFloat(s.discount||0).toFixed(2)}</td>
+      <td><strong style="color:var(--green)">₹${parseFloat(s.final_amount).toFixed(2)}</strong></td>
+      <td>${s.sold_by}</td>
+      <td>${dt}</td>
+      <td><div class="action-btns">
+        <button class="btn btn-sm btn-edit" onclick="viewBillDetails(${s.id})"><i class="fa-solid fa-eye"></i></button>
+        <button class="btn btn-sm btn-del"  onclick="deleteSale(${s.id})"><i class="fa-solid fa-trash"></i></button>
+      </div></td>`;
+    tbody.appendChild(row);
+    // Load item count async
+    loadBillItemCount(s.id, row.cells[3]);
+  });
+}
+
+async function loadBillItemCount(saleId, cell) {
+  try {
+    const items = await apiCall("GET", `/sales/${saleId}/items`);
+    cell.textContent = items.length + (items.length === 1 ? " item" : " items");
+  } catch { cell.textContent = "—"; }
+}
+
+async function viewBillDetails(saleId) {
+  const sale = sales.find(s => s.id === saleId);
+  if (!sale) return;
+  currentBillSaleData = sale;
+  document.getElementById("billDetailsTitle").textContent    = "Bill: " + sale.bill_no;
+  document.getElementById("billDetailsCustomer").textContent = sale.customer;
+  document.getElementById("bdSubtotal").textContent = "₹" + parseFloat(sale.total_amount).toFixed(2);
+  document.getElementById("bdDiscount").textContent = "₹" + parseFloat(sale.discount||0).toFixed(2);
+  document.getElementById("bdTotal").textContent    = "₹" + parseFloat(sale.final_amount).toFixed(2);
+
+  const tbody = document.querySelector("#billDetailsTable tbody");
+  tbody.innerHTML = `<tr><td colspan="7" class="table-loading"><i class="fa-solid fa-spinner fa-spin"></i></td></tr>`;
+  document.getElementById("billDetailsModal").classList.add("open");
+
+  try {
+    const items = await apiCall("GET", `/sales/${saleId}/items`);
+    currentBillSaleData._items = items;
+    tbody.innerHTML = items.map((it, i) => `
+      <tr>
+        <td>${i+1}</td>
+        <td><strong>${it.product_name}</strong></td>
+        <td>${it.batch_no||"—"}</td>
+        <td>${it.quantity}</td>
+        <td>₹${parseFloat(it.unit_price).toFixed(2)}</td>
+        <td>${it.discount_pct||0}%</td>
+        <td>₹${parseFloat(it.line_total).toFixed(2)}</td>
+      </tr>`).join("");
+  } catch { tbody.innerHTML = `<tr><td colspan="7" class="table-loading">Error loading items.</td></tr>`; }
+}
+
+function reprintBill() {
+  if (!currentBillSaleData) return;
+  printBill(currentBillSaleData, currentBillSaleData._items || []);
+}
+
+async function deleteSale(id) {
+  if (!confirm("Delete this bill? This cannot be undone.")) return;
+  try {
+    await apiCall("DELETE", "/sales/" + id);
+    showToast("Bill deleted."); loadSales();
+  } catch (err) { showToast("Delete failed: " + err.message, "error"); }
+}
+
+// ============================================
+//  USER MANAGEMENT
+// ============================================
+async function loadUsers() {
+  const container = document.getElementById("usersListContainer");
+  if (!container) return;
+  container.innerHTML = `<p class="table-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</p>`;
+  try {
+    const users = await apiCall("GET", "/users");
+    if (!users.length) { container.innerHTML = `<p class="table-loading">No users found.</p>`; return; }
+    container.innerHTML = users.map(u => `
+      <div class="user-card">
+        <div class="user-info">
+          <div class="user-avatar ${u.role}">${u.username[0].toUpperCase()}</div>
+          <div>
+            <div class="user-name">${u.username}</div>
+            <div class="user-meta">Last updated: ${new Date(u.updatedAt).toLocaleDateString("en-IN")}</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px">
+          <span class="tag-${u.role}">${u.role.charAt(0).toUpperCase()+u.role.slice(1)}</span>
+          ${u.username !== localStorage.getItem("adminUser") ? `
+          <button class="btn btn-sm btn-del" onclick="deleteUser(${u.id},'${u.username}')">
+            <i class="fa-solid fa-trash"></i>
+          </button>` : `<span style="font-size:0.75rem;color:var(--text-light)">(you)</span>`}
+        </div>
+      </div>`).join("");
+  } catch (err) {
+    container.innerHTML = `<p class="table-loading" style="color:var(--red)">Error loading users.</p>`;
+  }
+}
+
+async function addUser() {
+  const username = document.getElementById("newUsername").value.trim();
+  const password = document.getElementById("newUserPassword").value;
+  const role     = document.getElementById("newUserRole").value;
+  const msgBox   = document.getElementById("addUserMsg");
+  const btn      = document.getElementById("addUserBtn");
+
+  const showMsg = (msg, type) => {
+    msgBox.style.display = "block";
+    msgBox.style.background = type==="error" ? "rgba(231,76,60,0.1)" : "rgba(39,174,96,0.1)";
+    msgBox.style.border = type==="error" ? "1px solid rgba(231,76,60,0.4)" : "1px solid rgba(39,174,96,0.4)";
+    msgBox.style.color = type==="error" ? "#e74c3c" : "#27ae60";
+    msgBox.innerHTML = `<i class="fa-solid ${type==="error"?"fa-circle-exclamation":"fa-check-circle"}"></i> ${msg}`;
+  };
+
+  if (!username || !password) { showMsg("Username and password are required.","error"); return; }
+  if (password.length < 4)    { showMsg("Password must be at least 4 characters.","error"); return; }
+
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Creating...';
+
+  try {
+    await apiCall("POST", "/users", { username, password, role });
+    showMsg("User created successfully!","success");
+    setTimeout(() => { document.getElementById("addUserModal").classList.remove("open"); loadUsers(); }, 1500);
+  } catch (err) {
+    showMsg(err.message || "Failed to create user.","error");
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-user-plus"></i> Create User';
+  }
+}
+
+async function deleteUser(id, username) {
+  if (!confirm(`Remove user "${username}"? They will no longer be able to log in.`)) return;
+  try {
+    await apiCall("DELETE", "/users/" + id);
+    showToast("User removed."); loadUsers();
+  } catch (err) { showToast(err.message || "Delete failed.", "error"); }
 }
 
 // ============================================
@@ -692,24 +950,17 @@ function renderStockSection() {
 // ============================================
 function exportToExcel() {
   if (!products.length) { showToast("No products to export.", "error"); return; }
-
-  const headers = ["#","Product","Batch","Supplier","Category","Qty",
-                   "Purchase Price","Selling Price","Profit","Expiry","Status"];
-
-  const rows = products.map((p, i) => [
-    i + 1, p.name, p.batch, p.supplier, p.category || "",
-    p.quantity, p.purchasePrice.toFixed(2), p.sellingPrice.toFixed(2),
-    (p.sellingPrice - p.purchasePrice).toFixed(2),
-    p.expiry, p.status
+  const headers = ["#","Product","Batch","Supplier","Category","Qty","Purchase Price","Selling Price","Profit","Expiry","Status"];
+  const rows = products.map((p,i) => [
+    i+1, p.name, p.batch, p.supplier, p.category||"", p.quantity,
+    p.purchasePrice.toFixed(2), p.sellingPrice.toFixed(2),
+    (p.sellingPrice-p.purchasePrice).toFixed(2), p.expiry, p.status
   ]);
-
-  const csv  = [headers, ...rows].map(r => r.map(v => `"${v}"`).join(",")).join("\n");
-  const blob = new Blob([csv], { type: "text/csv" });
+  const csv  = [headers,...rows].map(r => r.map(v => `"${v}"`).join(",")).join("\n");
+  const blob = new Blob([csv], { type:"text/csv" });
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement("a");
-  a.href = url;
-  a.download = "MSK_Traders_Inventory.csv";
-  a.click();
+  a.href = url; a.download = "MSK_Traders_Inventory.csv"; a.click();
   URL.revokeObjectURL(url);
   showToast("Exported successfully!");
 }
@@ -719,152 +970,80 @@ function exportToExcel() {
 // ============================================
 function generateInvoice() {
   if (!products.length) { showToast("No products for invoice.", "error"); return; }
-
-  const rows = products.map((p, i) => `
+  const rows = products.map((p,i) => `
     <tr>
-      <td>${i + 1}</td>
-      <td>${p.name}</td>
-      <td>${p.batch}</td>
-      <td>${p.quantity}</td>
-      <td>&#8377;${p.purchasePrice.toFixed(2)}</td>
-      <td>&#8377;${p.sellingPrice.toFixed(2)}</td>
-      <td>&#8377;${(p.sellingPrice - p.purchasePrice).toFixed(2)}</td>
-      <td>${p.expiry}</td>
-    </tr>
-  `).join("");
-
-  const totalProfit = products.reduce((sum, p) =>
-    sum + (p.sellingPrice - p.purchasePrice) * p.quantity, 0);
-
-  const win = window.open("", "_blank");
+      <td>${i+1}</td><td>${p.name}</td><td>${p.batch}</td><td>${p.quantity}</td>
+      <td>₹${p.purchasePrice.toFixed(2)}</td><td>₹${p.sellingPrice.toFixed(2)}</td>
+      <td>₹${(p.sellingPrice-p.purchasePrice).toFixed(2)}</td><td>${p.expiry}</td>
+    </tr>`).join("");
+  const totalProfit = products.reduce((sum,p) => sum+(p.sellingPrice-p.purchasePrice)*p.quantity, 0);
+  const win = window.open("","_blank");
   win.document.write(`<!DOCTYPE html><html><head>
     <title>MSK Traders Invoice</title>
     <style>
-      body { font-family: Arial, sans-serif; padding: 30px; color: #1a2b45; }
-      h1   { font-size: 28px; letter-spacing: 3px; color: #0b2545; }
-      .sub { color: #6b7a99; font-size: 13px; margin-bottom: 20px; }
-      table{ width: 100%; border-collapse: collapse; margin-top: 20px; }
-      th   { background: #0b2545; color: white; padding: 10px; text-align: left; font-size: 12px; }
-      td   { padding: 9px 10px; border-bottom: 1px solid #dde3f0; font-size: 13px; }
-      tr:hover { background: #f7f9ff; }
-      .total { margin-top: 20px; font-size: 16px; font-weight: 700; color: #27ae60; }
-      @media print { button { display: none; } }
-    </style>
-    </head><body>
+      body{font-family:Arial,sans-serif;padding:30px;color:#1a2b45}
+      h1{font-size:28px;letter-spacing:3px;color:#0b2545}
+      .sub{color:#6b7a99;font-size:13px;margin-bottom:20px}
+      table{width:100%;border-collapse:collapse;margin-top:20px}
+      th{background:#0b2545;color:white;padding:10px;text-align:left;font-size:12px}
+      td{padding:9px 10px;border-bottom:1px solid #dde3f0;font-size:13px}
+      tr:hover{background:#f7f9ff}
+      .total{margin-top:20px;font-size:16px;font-weight:700;color:#27ae60}
+      @media print{button{display:none}}
+    </style></head><body>
     <h1>MSK TRADERS</h1>
-    <p class="sub">Generated: ${new Date().toLocaleDateString("en-IN", { dateStyle: "long" })}</p>
-    <button onclick="window.print()"
-      style="padding:8px 18px;background:#0b2545;color:white;border:none;border-radius:6px;cursor:pointer">
-      Print
-    </button>
+    <p class="sub">Stock Invoice — ${new Date().toLocaleDateString("en-IN",{dateStyle:"long"})}</p>
+    <button onclick="window.print()" style="padding:8px 18px;background:#0b2545;color:white;border:none;border-radius:6px;cursor:pointer">Print</button>
     <table>
-      <thead>
-        <tr>
-          <th>#</th><th>Product</th><th>Batch</th><th>Qty</th>
-          <th>Purchase</th><th>Selling</th><th>Profit</th><th>Expiry</th>
-        </tr>
-      </thead>
+      <thead><tr><th>#</th><th>Product</th><th>Batch</th><th>Qty</th><th>Purchase</th><th>Selling</th><th>Profit</th><th>Expiry</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
-    <p class="total">Total Estimated Profit: &#8377;${totalProfit.toFixed(2)}</p>
+    <p class="total">Total Estimated Profit: ₹${totalProfit.toFixed(2)}</p>
     </body></html>`);
   win.document.close();
 }
 
 // ============================================
-//  CHANGE PASSWORD
+//  CLOSE DROPDOWNS ON CLICK OUTSIDE
 // ============================================
-
-function togglePw(fieldId, btn) {
-  const input = document.getElementById(fieldId);
-  const icon  = btn.querySelector("i");
-  if (input.type === "password") {
-    input.type    = "text";
-    icon.className = "fa-solid fa-eye-slash";
-  } else {
-    input.type    = "password";
-    icon.className = "fa-solid fa-eye";
+document.addEventListener("click", e => {
+  if (!e.target.closest(".product-search-wrap")) {
+    document.querySelectorAll(".product-dropdown").forEach(d => d.classList.remove("open"));
   }
-}
-
-function showPwMsg(message, type = "error") {
-  const box = document.getElementById("pwMsg");
-  if (!box) return;
-  box.style.display      = "block";
-  box.style.background   = type === "error" ? "rgba(231,76,60,0.1)"  : "rgba(39,174,96,0.1)";
-  box.style.border       = type === "error" ? "1px solid rgba(231,76,60,0.4)" : "1px solid rgba(39,174,96,0.4)";
-  box.style.color        = type === "error" ? "#e74c3c" : "#27ae60";
-  box.innerHTML = `<i class="fa-solid ${type === "error" ? "fa-circle-exclamation" : "fa-check-circle"}"></i> ${message}`;
-
-  if (type === "success") {
-    setTimeout(() => { box.style.display = "none"; }, 4000);
-  }
-}
-
-async function changePassword() {
-  const currentPassword = document.getElementById("currentPassword").value;
-  const newPassword     = document.getElementById("newPassword").value;
-  const confirmPassword = document.getElementById("confirmPassword").value;
-  const username        = localStorage.getItem("adminUser") || "admin";
-  const btn             = document.getElementById("changePwBtn");
-
-  // Validations
-  if (!currentPassword || !newPassword || !confirmPassword) {
-    showPwMsg("Please fill all fields.");
-    return;
-  }
-
-  if (newPassword.length < 4) {
-    showPwMsg("New password must be at least 4 characters.");
-    return;
-  }
-
-  if (newPassword !== confirmPassword) {
-    showPwMsg("New password and confirm password do not match.");
-    return;
-  }
-
-  if (currentPassword === newPassword) {
-    showPwMsg("New password must be different from current password.");
-    return;
-  }
-
-  btn.disabled = true;
-  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
-
-  try {
-    const data = await apiCall("POST", "/change-password", {
-      username,
-      currentPassword,
-      newPassword
-    });
-
-    if (data.success) {
-      showPwMsg("✅ Password changed successfully! Use new password on next login.", "success");
-      // Clear all fields
-      document.getElementById("currentPassword").value = "";
-      document.getElementById("newPassword").value     = "";
-      document.getElementById("confirmPassword").value = "";
-    }
-  } catch (err) {
-    showPwMsg(err.message || "Failed to change password.");
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Save New Password';
-  }
-}
+});
 
 // ============================================
-//  INIT — runs when page loads
+//  INIT
 // ============================================
 document.addEventListener("DOMContentLoaded", async () => {
   const overlay = document.getElementById("loadingOverlay");
 
+  // Show username
+  const user = localStorage.getItem("adminUser") || "admin";
+  const role = localStorage.getItem("userRole")  || "";
+  const sidebarUser = document.getElementById("sidebarUser");
+  const dashUser    = document.getElementById("dashUser");
+  if (sidebarUser) sidebarUser.textContent = user;
+  if (dashUser)    dashUser.textContent    = user;
+
+  // Show users nav only for owners
+  if (role === "owner") {
+    const nav = document.getElementById("usersNavItem");
+    if (nav) nav.style.display = "";
+  }
+
+  // Dark mode pill sync
+  const pill = document.getElementById("darkPill");
+  if (pill && document.body.classList.contains("dark")) {
+    // CSS handles visual via body.dark .toggle-pill
+  }
+
   try {
     await checkDBStatus();
-    await loadSuppliers();   // Load suppliers first (needed for dropdown)
-    await loadProducts();    // Then load products
-    renderDashboard();       // Render dashboard with loaded data
+    await loadSuppliers();
+    await loadProducts();
+    renderDashboard();
+    initBilling();
   } catch (err) {
     console.error("Startup error:", err);
     showToast("Startup error: " + err.message, "error");
@@ -872,26 +1051,41 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (overlay) overlay.style.display = "none";
   }
 
-  // Re-check DB connection every 30 seconds
   setInterval(checkDBStatus, 30000);
 });
 
 // ============================================
-//  EXPOSE FUNCTIONS FOR HTML onclick
+//  EXPOSE GLOBALS
 // ============================================
-window.showSection     = showSection;
-window.toggleSidebar   = toggleSidebar;
-window.closeSidebar    = closeSidebar;
-window.logout          = logout;
-window.addProduct      = addProduct;
-window.deleteProduct   = deleteProduct;
-window.editProduct     = editProduct;
-window.cancelEdit      = cancelEdit;
-window.filterProducts  = filterProducts;
-window.addSupplier     = addSupplier;
-window.deleteSupplier  = deleteSupplier;
-window.filterSuppliers = filterSuppliers;
-window.exportToExcel   = exportToExcel;
-window.generateInvoice = generateInvoice;
-window.changePassword  = changePassword;
-window.togglePw        = togglePw;
+window.showSection      = showSection;
+window.toggleSidebar    = toggleSidebar;
+window.closeSidebar     = closeSidebar;
+window.addProduct       = addProduct;
+window.deleteProduct    = deleteProduct;
+window.editProduct      = editProduct;
+window.cancelEdit       = cancelEdit;
+window.filterProducts   = filterProducts;
+window.addSupplier      = addSupplier;
+window.deleteSupplier   = deleteSupplier;
+window.filterSuppliers  = filterSuppliers;
+window.exportToExcel    = exportToExcel;
+window.generateInvoice  = generateInvoice;
+window.addBillRow       = addBillRow;
+window.removeBillRow    = removeBillRow;
+window.updateBillRow    = updateBillRow;
+window.updateBillSummary= updateBillSummary;
+window.clearBill        = clearBill;
+window.finalizeBill     = finalizeBill;
+window.searchBillProduct= searchBillProduct;
+window.openProductDropdown=openProductDropdown;
+window.selectBillProduct= selectBillProduct;
+window.loadSales        = loadSales;
+window.clearSalesFilter = clearSalesFilter;
+window.filterSalesTable = filterSalesTable;
+window.viewBillDetails  = viewBillDetails;
+window.reprintBill      = reprintBill;
+window.deleteSale       = deleteSale;
+window.loadUsers        = loadUsers;
+window.addUser          = addUser;
+window.deleteUser       = deleteUser;
+window.openAddUserModal = openAddUserModal;

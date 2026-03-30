@@ -14,31 +14,25 @@
 
   <!-- Auth Guard -->
   <script>
-    if (localStorage.getItem("loggedIn") !== "true") {
-      window.location.replace("login.html");
-    }
+    if (localStorage.getItem("loggedIn") !== "true") window.location.replace("login.html");
+    if (localStorage.getItem("darkMode") === "true") document.body.classList.add("dark");
   </script>
 
   <!-- Loading Overlay -->
   <div id="loadingOverlay" class="loading-overlay">
     <div class="loading-box">
       <i class="fa-solid fa-pills fa-spin"></i>
-      <p>Connecting to database...</p>
+      <p>Loading MSK Traders...</p>
     </div>
   </div>
 
   <!-- Mobile Header -->
   <div class="mobile-header">
-    <button class="hamburger" onclick="toggleSidebar()">
-      <i class="fa-solid fa-bars"></i>
-    </button>
+    <button class="hamburger" onclick="toggleSidebar()"><i class="fa-solid fa-bars"></i></button>
     <span class="mobile-brand">MSK TRADERS</span>
-    <button class="mobile-logout" onclick="localStorage.removeItem('loggedIn');localStorage.removeItem('adminUser');window.location.replace('login.html');">
-      <i class="fa-solid fa-right-from-bracket"></i>
-    </button>
+    <button class="mobile-logout" onclick="logout()"><i class="fa-solid fa-right-from-bracket"></i></button>
   </div>
 
-  <!-- Overlay -->
   <div class="overlay" id="overlay" onclick="closeSidebar()"></div>
 
   <div class="app-shell">
@@ -57,6 +51,12 @@
         <a class="nav-item active" onclick="showSection('dashboard')">
           <i class="fa-solid fa-gauge-high"></i> Dashboard
         </a>
+        <a class="nav-item" onclick="showSection('billing')">
+          <i class="fa-solid fa-receipt"></i> New Bill
+        </a>
+        <a class="nav-item" onclick="showSection('sales')">
+          <i class="fa-solid fa-chart-line"></i> Sales History
+        </a>
         <a class="nav-item" onclick="showSection('products')">
           <i class="fa-solid fa-pills"></i> Products
         </a>
@@ -64,11 +64,20 @@
           <i class="fa-solid fa-truck"></i> Suppliers
         </a>
         <a class="nav-item" onclick="showSection('stock')">
-          <i class="fa-solid fa-chart-line"></i> Stock Overview
+          <i class="fa-solid fa-boxes-stacked"></i> Stock Overview
+        </a>
+        <a class="nav-item" id="usersNavItem" onclick="showSection('users')" style="display:none">
+          <i class="fa-solid fa-users"></i> Manage Users
         </a>
         <a class="nav-item" onclick="openPasswordModal()">
           <i class="fa-solid fa-key"></i> Change Password
         </a>
+
+        <!-- Dark Mode Toggle -->
+        <div class="dark-toggle" onclick="toggleDarkMode()">
+          <span><i class="fa-solid fa-moon"></i> &nbsp;Dark Mode</span>
+          <div class="toggle-pill" id="darkPill"></div>
+        </div>
       </nav>
 
       <div class="sidebar-footer">
@@ -76,7 +85,10 @@
           <i class="fa-solid fa-circle" id="dbDot"></i>
           <span id="dbStatusText">Connecting...</span>
         </div>
-        <button class="sidebar-logout" onclick="localStorage.removeItem('loggedIn');localStorage.removeItem('adminUser');window.location.replace('login.html');">
+        <div style="font-size:0.75rem;color:rgba(255,255,255,0.3);margin-bottom:8px;padding:0 2px">
+          Logged in as: <strong id="sidebarUser" style="color:rgba(255,255,255,0.55)">—</strong>
+        </div>
+        <button class="sidebar-logout" onclick="logout()">
           <i class="fa-solid fa-right-from-bracket"></i> Logout
         </button>
       </div>
@@ -90,48 +102,49 @@
         <div class="page-header">
           <div>
             <h1 class="page-title">Dashboard</h1>
-            <p class="page-sub">Overview of your pharmacy stock</p>
+            <p class="page-sub">Welcome back, <span id="dashUser">—</span></p>
           </div>
           <div class="header-actions">
-            <button class="btn btn-green" onclick="exportToExcel()">
-              <i class="fa-solid fa-file-excel"></i> Export
-            </button>
-            <button class="btn btn-blue" onclick="generateInvoice()">
-              <i class="fa-solid fa-file-invoice"></i> Invoice
-            </button>
+            <button class="btn btn-green" onclick="exportToExcel()"><i class="fa-solid fa-file-excel"></i> Export</button>
+            <button class="btn btn-blue"  onclick="showSection('billing')"><i class="fa-solid fa-plus"></i> New Bill</button>
           </div>
         </div>
 
         <div id="expiryAlert" class="alert-banner" style="display:none"></div>
 
-        <div class="stats-grid">
+        <!-- Stock Stats -->
+        <div class="stats-grid" id="dashStatsGrid">
           <div class="stat-card stat-blue">
             <div class="stat-icon"><i class="fa-solid fa-box"></i></div>
-            <div class="stat-info">
-              <div class="stat-label">Total Medicines</div>
-              <div class="stat-value" id="totalProducts">—</div>
-            </div>
+            <div class="stat-info"><div class="stat-label">Total Medicines</div><div class="stat-value" id="totalProducts">—</div></div>
           </div>
           <div class="stat-card stat-yellow">
             <div class="stat-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
-            <div class="stat-info">
-              <div class="stat-label">Low Stock</div>
-              <div class="stat-value" id="lowStock">—</div>
-            </div>
+            <div class="stat-info"><div class="stat-label">Low Stock</div><div class="stat-value" id="lowStock">—</div></div>
           </div>
           <div class="stat-card stat-orange">
             <div class="stat-icon"><i class="fa-solid fa-clock"></i></div>
-            <div class="stat-info">
-              <div class="stat-label">Expiring Soon</div>
-              <div class="stat-value" id="expiringSoon">—</div>
-            </div>
+            <div class="stat-info"><div class="stat-label">Expiring Soon</div><div class="stat-value" id="expiringSoon">—</div></div>
           </div>
           <div class="stat-card stat-red">
             <div class="stat-icon"><i class="fa-solid fa-ban"></i></div>
-            <div class="stat-info">
-              <div class="stat-label">Expired</div>
-              <div class="stat-value" id="expiredCount">—</div>
-            </div>
+            <div class="stat-info"><div class="stat-label">Expired</div><div class="stat-value" id="expiredCount">—</div></div>
+          </div>
+          <div class="stat-card stat-green">
+            <div class="stat-icon"><i class="fa-solid fa-indian-rupee-sign"></i></div>
+            <div class="stat-info"><div class="stat-label">Today's Sales</div><div class="stat-value" id="todaySales">—</div></div>
+          </div>
+          <div class="stat-card stat-teal">
+            <div class="stat-icon"><i class="fa-solid fa-calendar-day"></i></div>
+            <div class="stat-info"><div class="stat-label">This Month</div><div class="stat-value" id="monthSales">—</div></div>
+          </div>
+          <div class="stat-card stat-purple">
+            <div class="stat-icon"><i class="fa-solid fa-receipt"></i></div>
+            <div class="stat-info"><div class="stat-label">Today's Bills</div><div class="stat-value" id="todayBills">—</div></div>
+          </div>
+          <div class="stat-card stat-blue">
+            <div class="stat-icon"><i class="fa-solid fa-chart-bar"></i></div>
+            <div class="stat-info"><div class="stat-label">Total Sales</div><div class="stat-value" id="totalSalesAll">—</div></div>
           </div>
         </div>
 
@@ -141,8 +154,140 @@
             <div class="chart-wrap"><canvas id="stockChart"></canvas></div>
           </div>
           <div class="card">
-            <div class="card-head"><h3><i class="fa-solid fa-box-open"></i> Reorder Alerts</h3></div>
-            <div id="lowStockSuggestions" class="reorder-list"></div>
+            <div class="card-head"><h3><i class="fa-solid fa-chart-line"></i> Monthly Sales (₹)</h3></div>
+            <div class="chart-wrap"><canvas id="salesTrendChart"></canvas></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3><i class="fa-solid fa-box-open"></i> Reorder Alerts</h3></div>
+          <div id="lowStockSuggestions" class="reorder-list"></div>
+        </div>
+      </section>
+
+      <!-- ===== NEW BILL / BILLING ===== -->
+      <section id="sec-billing" class="section">
+        <div class="page-header">
+          <div>
+            <h1 class="page-title">New Bill</h1>
+            <p class="page-sub">Create a sale and generate a printable receipt</p>
+          </div>
+          <div class="header-actions">
+            <button class="btn btn-outline" onclick="clearBill()"><i class="fa-solid fa-rotate-left"></i> Clear</button>
+            <button class="btn btn-green"   onclick="finalizeBill()"><i class="fa-solid fa-check"></i> Finalize & Print</button>
+          </div>
+        </div>
+
+        <div class="grid-2col" style="align-items:start">
+
+          <!-- Left: Items -->
+          <div style="display:flex;flex-direction:column;gap:16px">
+            <div class="card">
+              <div class="card-head">
+                <h3><i class="fa-solid fa-cart-plus"></i> Add Items</h3>
+                <button class="btn btn-accent btn-sm" onclick="addBillRow()"><i class="fa-solid fa-plus"></i> Add Row</button>
+              </div>
+              <div class="card-body">
+                <div class="bill-header-row">
+                  <span>Product</span><span>Qty</span><span>Price (₹)</span><span>Disc%</span><span></span>
+                </div>
+                <div id="billItemsContainer"></div>
+                <button class="btn btn-outline btn-sm" onclick="addBillRow()" style="margin-top:8px">
+                  <i class="fa-solid fa-plus"></i> Add another item
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right: Summary -->
+          <div style="display:flex;flex-direction:column;gap:16px">
+            <div class="card">
+              <div class="card-head"><h3><i class="fa-solid fa-user"></i> Customer Details</h3></div>
+              <div class="card-body">
+                <div style="display:flex;flex-direction:column;gap:10px">
+                  <input type="text" id="billCustomer" placeholder="Customer Name (optional)" style="padding:10px 14px;border:1px solid var(--border);border-radius:10px;font-family:'DM Sans',sans-serif;font-size:0.9rem;color:var(--text);background:var(--input-bg);outline:none;width:100%">
+                  <input type="text" id="billPhone" placeholder="Phone Number (optional)" style="padding:10px 14px;border:1px solid var(--border);border-radius:10px;font-family:'DM Sans',sans-serif;font-size:0.9rem;color:var(--text);background:var(--input-bg);outline:none;width:100%">
+                </div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-head"><h3><i class="fa-solid fa-calculator"></i> Bill Summary</h3></div>
+              <div class="card-body">
+                <div class="bill-summary">
+                  <div class="bill-summary-row"><span>Subtotal</span><span id="billSubtotal">₹0.00</span></div>
+                  <div class="bill-summary-row">
+                    <span>Discount (₹)</span>
+                    <input type="number" id="billDiscount" value="0" min="0" step="0.01"
+                      oninput="updateBillSummary()"
+                      style="width:90px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:0.9rem;text-align:right;background:var(--input-bg);color:var(--text);outline:none">
+                  </div>
+                  <div class="bill-summary-row total"><span>Total</span><span id="billTotal">₹0.00</span></div>
+                </div>
+                <button class="btn btn-green" style="width:100%;margin-top:16px;justify-content:center" onclick="finalizeBill()">
+                  <i class="fa-solid fa-print"></i> Finalize & Print Bill
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== SALES HISTORY ===== -->
+      <section id="sec-sales" class="section">
+        <div class="page-header">
+          <div>
+            <h1 class="page-title">Sales History</h1>
+            <p class="page-sub">Track all your daily and monthly sales</p>
+          </div>
+          <div class="header-actions">
+            <input type="date" id="salesFrom" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;background:var(--input-bg);color:var(--text)">
+            <input type="date" id="salesTo"   style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;background:var(--input-bg);color:var(--text)">
+            <button class="btn btn-blue" onclick="loadSales()"><i class="fa-solid fa-filter"></i> Filter</button>
+            <button class="btn btn-outline" onclick="clearSalesFilter()"><i class="fa-solid fa-xmark"></i> Clear</button>
+          </div>
+        </div>
+
+        <div class="stats-grid" style="grid-template-columns:repeat(3,1fr)">
+          <div class="stat-card stat-green">
+            <div class="stat-icon"><i class="fa-solid fa-indian-rupee-sign"></i></div>
+            <div class="stat-info"><div class="stat-label">Today's Revenue</div><div class="stat-value" id="sToday">—</div></div>
+          </div>
+          <div class="stat-card stat-teal">
+            <div class="stat-icon"><i class="fa-solid fa-calendar-alt"></i></div>
+            <div class="stat-info"><div class="stat-label">This Month</div><div class="stat-value" id="sMonth">—</div></div>
+          </div>
+          <div class="stat-card stat-purple">
+            <div class="stat-icon"><i class="fa-solid fa-receipt"></i></div>
+            <div class="stat-info"><div class="stat-label">Today's Bills</div><div class="stat-value" id="sBills">—</div></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h3><i class="fa-solid fa-list"></i> All Bills</h3>
+            <input type="text" id="salesSearch" placeholder="Search bill / customer..." oninput="filterSalesTable()" style="padding:7px 12px;border:1px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:0.85rem;background:var(--input-bg);color:var(--text);outline:none;width:200px">
+          </div>
+          <div class="table-scroll">
+            <table id="salesTable">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Bill No</th>
+                  <th>Customer</th>
+                  <th>Items</th>
+                  <th>Subtotal</th>
+                  <th>Discount</th>
+                  <th>Total</th>
+                  <th>Sold By</th>
+                  <th>Date & Time</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td colspan="10" class="table-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</td></tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </section>
@@ -155,86 +300,43 @@
             <p class="page-sub">Manage your medicine inventory</p>
           </div>
           <div class="header-actions">
-            <button class="btn btn-green" onclick="exportToExcel()">
-              <i class="fa-solid fa-file-excel"></i> Export
-            </button>
-            <button class="btn btn-blue" onclick="generateInvoice()">
-              <i class="fa-solid fa-file-invoice"></i> Invoice
-            </button>
+            <button class="btn btn-green" onclick="exportToExcel()"><i class="fa-solid fa-file-excel"></i> Export</button>
+            <button class="btn btn-blue"  onclick="generateInvoice()"><i class="fa-solid fa-file-invoice"></i> Invoice</button>
           </div>
         </div>
 
         <div class="card">
-          <div class="card-head">
-            <h3><i class="fa-solid fa-plus-circle"></i> Add / Edit Product</h3>
-          </div>
+          <div class="card-head"><h3><i class="fa-solid fa-plus-circle"></i> Add / Edit Product</h3></div>
           <div class="form-grid">
-
-            <!-- Product Name with datalist (type or choose) -->
-            <input
-              type="text"
-              id="productName"
-              placeholder="Product Name *"
-              list="productSuggestions"
-              autocomplete="off"
-            >
+            <input type="text" id="productName" placeholder="Product Name *" list="productSuggestions" autocomplete="off">
             <datalist id="productSuggestions">
-              <option value="Paracetamol">
-              <option value="Amoxicillin">
-              <option value="Ibuprofen">
-              <option value="Cetirizine">
-              <option value="Metformin">
-              <option value="Azithromycin">
-              <option value="Omeprazole">
-              <option value="Atorvastatin">
-              <option value="Pantoprazole">
-              <option value="Dolo 650">
-              <option value="Aspirin">
-              <option value="Ciprofloxacin">
-              <option value="Ranitidine">
-              <option value="Amlodipine">
-              <option value="Losartan">
-              <option value="Montelukast">
-              <option value="Levothyroxine">
-              <option value="Insulin">
-              <option value="Cough Syrup">
-              <option value="Vitamin C">
-              <option value="Vitamin D3">
-              <option value="Vitamin B12">
-              <option value="Calcium Tablet">
-              <option value="Iron Tablet">
-              <option value="Eye Drops">
-              <option value="Ear Drops">
-              <option value="Nasal Drops">
+              <option value="Paracetamol"><option value="Amoxicillin"><option value="Ibuprofen">
+              <option value="Cetirizine"><option value="Metformin"><option value="Azithromycin">
+              <option value="Omeprazole"><option value="Atorvastatin"><option value="Pantoprazole">
+              <option value="Dolo 650"><option value="Aspirin"><option value="Ciprofloxacin">
+              <option value="Ranitidine"><option value="Amlodipine"><option value="Losartan">
+              <option value="Montelukast"><option value="Levothyroxine"><option value="Insulin">
+              <option value="Cough Syrup"><option value="Vitamin C"><option value="Vitamin D3">
+              <option value="Vitamin B12"><option value="Calcium Tablet"><option value="Iron Tablet">
+              <option value="Eye Drops"><option value="Ear Drops"><option value="Nasal Drops">
             </datalist>
-
-            <input type="text"   id="batchNo"       placeholder="Batch No *">
-
-            <!-- Supplier Dropdown (populated from DB) -->
-            <select id="supplier">
-              <option value="">Select Supplier *</option>
-            </select>
-
+            <input type="text" id="batchNo" placeholder="Batch No *">
+            <select id="supplier"><option value="">Select Supplier *</option></select>
             <input type="number" id="purchasePrice" placeholder="Purchase Price (₹)" min="0" step="0.01">
             <input type="number" id="sellingPrice"  placeholder="Selling Price (₹)"  min="0" step="0.01">
             <input type="number" id="quantity"      placeholder="Quantity *"          min="0">
-
             <div class="date-field">
-              <label class="date-label">Purchase Date *</label>
+              <label class="date-label">Purchase Date</label>
               <input type="date" id="purchaseDate">
             </div>
-
             <div class="date-field">
               <label class="date-label">Expiry Date *</label>
               <input type="date" id="expiryDate">
             </div>
-
             <select id="category">
               <option value="">Select Category</option>
-              <option value="Tablet">Tablet</option>
-              <option value="Syrup">Syrup</option>
-              <option value="Injection">Injection</option>
-              <option value="Capsule">Capsule</option>
+              <option value="Tablet">Tablet</option><option value="Syrup">Syrup</option>
+              <option value="Injection">Injection</option><option value="Capsule">Capsule</option>
               <option value="Drops">Drops</option>
               <option value="Ryles Tube - PAED (10,12)">Ryles Tube - PAED (10,12)</option>
               <option value="Ryles Tube - PAED (16,18)">Ryles Tube - PAED (16,18)</option>
@@ -244,71 +346,41 @@
               <option value="Dispo Gloves">Dispo Gloves</option>
               <option value="Single Use Dialyser FE/Equivalent">Single Use Dialyser FE/Equivalent</option>
               <option value="Dispovan 50ml Syringe">Dispovan 50ml Syringe</option>
-              <option value="Philadelphia Cervical Collar Paediatric">Philadelphia Cervical Collar Paediatric</option>
-              <option value="Portex Cuffed Tracheostomy Tube - 3.5 Size">Portex Cuffed Tracheostomy Tube - 3.5 Size</option>
-              <option value="Portex Cuffed Tracheostomy Tube - 4.0 Size">Portex Cuffed Tracheostomy Tube - 4.0 Size</option>
-              <option value="Portex Cuffed Tracheostomy Tube - 4.5 Size">Portex Cuffed Tracheostomy Tube - 4.5 Size</option>
-              <option value="Portex Cuffed Tracheostomy Tube - 5.0 Size">Portex Cuffed Tracheostomy Tube - 5.0 Size</option>
               <option value="IV Cannula 26G Purple">IV Cannula 26G Purple</option>
-              <option value="Spinal Needle - 25G (Large)">Spinal Needle - 25G (Large)</option>
-              <option value="Spinal Needle - 23G (Large)">Spinal Needle - 23G (Large)</option>
               <option value="AV Fistula Needle - 16G">AV Fistula Needle - 16G</option>
               <option value="AV Fistula Needle - 17G">AV Fistula Needle - 17G</option>
-              <option value="Unsterile Gloves (100 Nos) 1 Box">Unsterile Gloves (100 Nos) 1 Box</option>
               <option value="Double Lumen Catheter 11.5 FR">Double Lumen Catheter 11.5 FR</option>
               <option value="ICU Bag">ICU Bag</option>
-              <option value="Baby Weighing Machine with Tray">Baby Weighing Machine with Tray</option>
-              <option value="Adult Laryngoscope with Blades (McIntosh) Size-3">Adult Laryngoscope with Blades (McIntosh) Size-3</option>
-              <option value="Adult Laryngoscope with Blades (McIntosh) Size-4">Adult Laryngoscope with Blades (McIntosh) Size-4</option>
-              <option value="Paediatric Laryngoscope with Blades (Miller) Size-0">Paediatric Laryngoscope with Blades (Miller) Size-0</option>
-              <option value="Paediatric Laryngoscope with Blades (Miller) Size-1">Paediatric Laryngoscope with Blades (Miller) Size-1</option>
               <option value="Other">Other</option>
             </select>
-
             <select id="status">
               <option value="Received">Received</option>
               <option value="Pending">Pending</option>
             </select>
-
           </div>
-          <div style="margin-top:14px; display:flex; gap:10px; flex-wrap:wrap;">
-            <button class="btn btn-accent" id="addBtn" onclick="addProduct()">
-              <i class="fa-solid fa-plus"></i> Add Product
-            </button>
-            <button class="btn btn-outline" id="cancelEdit" onclick="cancelEdit()" style="display:none">
-              <i class="fa-solid fa-xmark"></i> Cancel
-            </button>
+          <div style="margin-top:14px;padding:0 20px 16px;display:flex;gap:10px;flex-wrap:wrap">
+            <button class="btn btn-accent" id="addBtn" onclick="addProduct()"><i class="fa-solid fa-plus"></i> Add Product</button>
+            <button class="btn btn-outline" id="cancelEdit" onclick="cancelEdit()" style="display:none"><i class="fa-solid fa-xmark"></i> Cancel</button>
           </div>
         </div>
 
         <div class="card" style="margin-top:20px">
-          <div class="card-head" style="flex-wrap:wrap; gap:10px">
+          <div class="card-head" style="flex-wrap:wrap;gap:10px">
             <h3><i class="fa-solid fa-table"></i> Product List</h3>
-            <input type="text" id="searchInput" placeholder="Search medicines..." oninput="filterProducts()">
+            <input type="text" id="searchInput" placeholder="Search medicines..." oninput="filterProducts()"
+              style="padding:7px 12px;border:1px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:0.85rem;background:var(--input-bg);color:var(--text);outline:none">
           </div>
           <div class="table-scroll">
             <table id="productTable">
               <thead>
                 <tr>
-                  <th>#</th>
-                  <th>Product Name</th>
-                  <th>Batch</th>
-                  <th>Supplier</th>
-                  <th>Category</th>
-                  <th>Qty</th>
-                  <th>Purchase ₹</th>
-                  <th>Selling ₹</th>
-                  <th>Profit ₹</th>
-                  <th>Purchase Date</th>
-                  <th>Expiry</th>
-                  <th>Status</th>
-                  <th>Actions</th>
+                  <th>#</th><th>Product Name</th><th>Batch</th><th>Supplier</th>
+                  <th>Category</th><th>Qty</th><th>Purchase ₹</th><th>Selling ₹</th>
+                  <th>Profit ₹</th><th>Purchase Date</th><th>Expiry</th><th>Status</th><th>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                <tr><td colspan="13" class="table-loading">
-                  <i class="fa-solid fa-spinner fa-spin"></i> Loading from database...
-                </td></tr>
+                <tr><td colspan="13" class="table-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading from database...</td></tr>
               </tbody>
             </table>
           </div>
@@ -318,46 +390,29 @@
       <!-- ===== SUPPLIERS ===== -->
       <section id="sec-suppliers" class="section">
         <div class="page-header">
-          <div>
-            <h1 class="page-title">Suppliers</h1>
-            <p class="page-sub">Manage your supplier directory</p>
-          </div>
+          <div><h1 class="page-title">Suppliers</h1><p class="page-sub">Manage your supplier directory</p></div>
         </div>
-
         <div class="card">
-          <div class="card-head">
-            <h3><i class="fa-solid fa-plus-circle"></i> Add Supplier</h3>
-          </div>
-          <div class="form-grid" style="grid-template-columns: 1fr 1fr">
+          <div class="card-head"><h3><i class="fa-solid fa-plus-circle"></i> Add Supplier</h3></div>
+          <div class="form-grid" style="grid-template-columns:1fr 1fr">
             <input type="text" id="supplierName"    placeholder="Supplier Name *">
             <input type="text" id="supplierContact" placeholder="Contact Number *">
           </div>
-          <div style="margin-top:14px">
-            <button class="btn btn-accent" onclick="addSupplier()">
-              <i class="fa-solid fa-plus"></i> Add Supplier
-            </button>
+          <div style="margin-top:14px;padding:0 20px 16px">
+            <button class="btn btn-accent" onclick="addSupplier()"><i class="fa-solid fa-plus"></i> Add Supplier</button>
           </div>
         </div>
-
         <div class="card" style="margin-top:20px">
           <div class="card-head">
             <h3><i class="fa-solid fa-address-book"></i> Supplier Directory</h3>
-            <input type="text" id="supplierSearch" placeholder="Search suppliers..." oninput="filterSuppliers()">
+            <input type="text" id="supplierSearch" placeholder="Search suppliers..." oninput="filterSuppliers()"
+              style="padding:7px 12px;border:1px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:0.85rem;background:var(--input-bg);color:var(--text);outline:none">
           </div>
           <div class="table-scroll">
             <table id="supplierTable">
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Supplier Name</th>
-                  <th>Contact</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
+              <thead><tr><th>#</th><th>Supplier Name</th><th>Contact</th><th>Actions</th></tr></thead>
               <tbody>
-                <tr><td colspan="4" class="table-loading">
-                  <i class="fa-solid fa-spinner fa-spin"></i> Loading from database...
-                </td></tr>
+                <tr><td colspan="4" class="table-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</td></tr>
               </tbody>
             </table>
           </div>
@@ -367,12 +422,8 @@
       <!-- ===== STOCK OVERVIEW ===== -->
       <section id="sec-stock" class="section">
         <div class="page-header">
-          <div>
-            <h1 class="page-title">Stock Overview</h1>
-            <p class="page-sub">Visual analytics of your inventory</p>
-          </div>
+          <div><h1 class="page-title">Stock Overview</h1><p class="page-sub">Visual analytics of your inventory</p></div>
         </div>
-
         <div class="grid-2col">
           <div class="card">
             <div class="card-head"><h3><i class="fa-solid fa-chart-bar"></i> Stock Status</h3></div>
@@ -383,80 +434,141 @@
             <div class="chart-wrap"><canvas id="categoryChart"></canvas></div>
           </div>
         </div>
-
         <div class="card" style="margin-top:20px">
-          <div class="card-head">
-            <h3><i class="fa-solid fa-triangle-exclamation"></i> Low Stock Items</h3>
-          </div>
+          <div class="card-head"><h3><i class="fa-solid fa-triangle-exclamation"></i> Low Stock Items</h3></div>
           <div id="lowStockTable" class="table-scroll"></div>
         </div>
       </section>
 
-      <!-- ===== CHANGE PASSWORD POPUP MODAL ===== -->
+      <!-- ===== MANAGE USERS ===== -->
+      <section id="sec-users" class="section">
+        <div class="page-header">
+          <div><h1 class="page-title">Manage Users</h1><p class="page-sub">Add or remove staff logins (Owner only)</p></div>
+          <div class="header-actions">
+            <button class="btn btn-purple" onclick="openAddUserModal()"><i class="fa-solid fa-user-plus"></i> Add User</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3><i class="fa-solid fa-users"></i> All Users</h3></div>
+          <div class="card-body" id="usersListContainer">
+            <p class="table-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== CHANGE PASSWORD MODAL ===== -->
       <div id="passwordModal" class="modal-overlay" onclick="closePasswordModal(event)">
         <div class="modal-box">
-
           <div class="modal-header">
             <div class="modal-title">
               <div class="modal-icon"><i class="fa-solid fa-key"></i></div>
-              <div>
-                <h3>Change Password</h3>
-                <p>Update your admin password</p>
-              </div>
+              <div><h3>Change Password</h3><p>Update your admin password</p></div>
             </div>
-            <button class="modal-close" onclick="closePasswordModal()">
-              <i class="fa-solid fa-xmark"></i>
-            </button>
+            <button class="modal-close" onclick="closePasswordModal()"><i class="fa-solid fa-xmark"></i></button>
           </div>
-
           <div id="pwMsg" class="pw-msg" style="display:none"></div>
-
           <div class="modal-body">
-
             <div class="pw-field">
               <label class="field-label">Current Password</label>
               <div class="pw-input-wrap">
                 <i class="fa-solid fa-lock"></i>
                 <input type="password" id="currentPassword" placeholder="Enter current password">
-                <button type="button" class="eye-btn" onclick="togglePw('currentPassword', this)">
-                  <i class="fa-solid fa-eye"></i>
-                </button>
+                <button type="button" class="eye-btn" onclick="togglePw('currentPassword',this)"><i class="fa-solid fa-eye"></i></button>
               </div>
             </div>
-
             <div class="pw-field">
               <label class="field-label">New Password</label>
               <div class="pw-input-wrap">
                 <i class="fa-solid fa-lock-open"></i>
-                <input type="password" id="newPassword" placeholder="Enter new password (min 4 chars)">
-                <button type="button" class="eye-btn" onclick="togglePw('newPassword', this)">
-                  <i class="fa-solid fa-eye"></i>
-                </button>
+                <input type="password" id="newPassword" placeholder="Min 4 characters">
+                <button type="button" class="eye-btn" onclick="togglePw('newPassword',this)"><i class="fa-solid fa-eye"></i></button>
               </div>
             </div>
-
             <div class="pw-field">
               <label class="field-label">Confirm New Password</label>
               <div class="pw-input-wrap">
                 <i class="fa-solid fa-lock-open"></i>
                 <input type="password" id="confirmPassword" placeholder="Re-enter new password">
-                <button type="button" class="eye-btn" onclick="togglePw('confirmPassword', this)">
-                  <i class="fa-solid fa-eye"></i>
-                </button>
+                <button type="button" class="eye-btn" onclick="togglePw('confirmPassword',this)"><i class="fa-solid fa-eye"></i></button>
               </div>
             </div>
-
           </div>
-
           <div class="modal-footer">
-            <button class="btn btn-outline" onclick="closePasswordModal()">
-              <i class="fa-solid fa-xmark"></i> Cancel
-            </button>
-            <button class="btn btn-accent" id="changePwBtn" onclick="changePassword()">
-              <i class="fa-solid fa-floppy-disk"></i> Save New Password
-            </button>
+            <button class="btn btn-outline" onclick="closePasswordModal()"><i class="fa-solid fa-xmark"></i> Cancel</button>
+            <button class="btn btn-accent" id="changePwBtn" onclick="changePassword()"><i class="fa-solid fa-floppy-disk"></i> Save</button>
           </div>
+        </div>
+      </div>
 
+      <!-- ===== ADD USER MODAL ===== -->
+      <div id="addUserModal" class="modal-overlay" onclick="closeAddUserModal(event)">
+        <div class="modal-box">
+          <div class="modal-header">
+            <div class="modal-title">
+              <div class="modal-icon" style="background:rgba(142,68,173,0.1);color:var(--purple)"><i class="fa-solid fa-user-plus"></i></div>
+              <div><h3>Add New User</h3><p>Create a staff or owner login</p></div>
+            </div>
+            <button class="modal-close" onclick="closeAddUserModal()"><i class="fa-solid fa-xmark"></i></button>
+          </div>
+          <div id="addUserMsg" class="pw-msg" style="display:none;margin:0 24px"></div>
+          <div class="modal-body">
+            <div class="pw-field">
+              <label class="field-label">Username</label>
+              <div class="pw-input-wrap">
+                <i class="fa-solid fa-user"></i>
+                <input type="text" id="newUsername" placeholder="Enter username" style="padding-left:40px">
+              </div>
+            </div>
+            <div class="pw-field">
+              <label class="field-label">Password</label>
+              <div class="pw-input-wrap">
+                <i class="fa-solid fa-lock"></i>
+                <input type="password" id="newUserPassword" placeholder="Enter password">
+                <button type="button" class="eye-btn" onclick="togglePw('newUserPassword',this)"><i class="fa-solid fa-eye"></i></button>
+              </div>
+            </div>
+            <div class="pw-field">
+              <label class="field-label">Role</label>
+              <select id="newUserRole" style="padding:11px 14px;border:1px solid var(--border);border-radius:10px;font-family:'DM Sans',sans-serif;font-size:0.9rem;color:var(--text);background:var(--input-bg);outline:none;width:100%">
+                <option value="staff">Staff</option>
+                <option value="owner">Owner</option>
+              </select>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-outline" onclick="closeAddUserModal()"><i class="fa-solid fa-xmark"></i> Cancel</button>
+            <button class="btn btn-purple" id="addUserBtn" onclick="addUser()"><i class="fa-solid fa-user-plus"></i> Create User</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== BILL DETAILS MODAL ===== -->
+      <div id="billDetailsModal" class="modal-overlay" onclick="closeBillDetailsModal(event)">
+        <div class="modal-box modal-box-lg">
+          <div class="modal-header">
+            <div class="modal-title">
+              <div class="modal-icon" style="background:rgba(39,174,96,0.1);color:var(--green)"><i class="fa-solid fa-receipt"></i></div>
+              <div><h3 id="billDetailsTitle">Bill Details</h3><p id="billDetailsCustomer"></p></div>
+            </div>
+            <button class="modal-close" onclick="closeBillDetailsModal()"><i class="fa-solid fa-xmark"></i></button>
+          </div>
+          <div class="modal-body">
+            <div class="table-scroll">
+              <table id="billDetailsTable">
+                <thead><tr><th>#</th><th>Product</th><th>Batch</th><th>Qty</th><th>Price</th><th>Disc%</th><th>Total</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <div class="bill-summary" style="margin-top:12px">
+              <div class="bill-summary-row"><span>Subtotal</span><span id="bdSubtotal"></span></div>
+              <div class="bill-summary-row"><span>Discount</span><span id="bdDiscount"></span></div>
+              <div class="bill-summary-row total"><span>Total Paid</span><span id="bdTotal"></span></div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-outline" onclick="closeBillDetailsModal()">Close</button>
+            <button class="btn btn-blue" onclick="reprintBill()"><i class="fa-solid fa-print"></i> Reprint</button>
+          </div>
         </div>
       </div>
 
@@ -465,106 +577,84 @@
 
   <script type="module" src="script.js"></script>
 
-  <!-- Non-module script so logout/password functions work instantly -->
+  <!-- Inline helpers for modal/toggle (must be non-module for onclick) -->
   <script>
+    function toggleDarkMode() {
+      document.body.classList.toggle("dark");
+      localStorage.setItem("darkMode", document.body.classList.contains("dark"));
+    }
+
     function openPasswordModal() {
       document.getElementById("passwordModal").classList.add("open");
-      document.getElementById("currentPassword").value = "";
-      document.getElementById("newPassword").value     = "";
-      document.getElementById("confirmPassword").value = "";
+      ["currentPassword","newPassword","confirmPassword"].forEach(id => document.getElementById(id).value = "");
       const msg = document.getElementById("pwMsg");
       if (msg) msg.style.display = "none";
       closeSidebar();
     }
-
     function closePasswordModal(e) {
       if (e && e.target !== document.getElementById("passwordModal")) return;
       document.getElementById("passwordModal").classList.remove("open");
     }
-
+    function openAddUserModal() {
+      document.getElementById("addUserModal").classList.add("open");
+      document.getElementById("newUsername").value = "";
+      document.getElementById("newUserPassword").value = "";
+      document.getElementById("newUserRole").value = "staff";
+      const msg = document.getElementById("addUserMsg");
+      if (msg) msg.style.display = "none";
+    }
+    function closeAddUserModal(e) {
+      if (e && e.target !== document.getElementById("addUserModal")) return;
+      document.getElementById("addUserModal").classList.remove("open");
+    }
+    function closeBillDetailsModal(e) {
+      if (e && e.target !== document.getElementById("billDetailsModal")) return;
+      document.getElementById("billDetailsModal").classList.remove("open");
+    }
     function logout() {
       localStorage.removeItem("loggedIn");
       localStorage.removeItem("adminUser");
+      localStorage.removeItem("userRole");
       window.location.replace("login.html");
     }
-
     function togglePw(fieldId, btn) {
       const input = document.getElementById(fieldId);
       if (!input) return;
-      // Find the icon — could be btn itself or inside btn
-      const icon = btn.tagName === "BUTTON"
-        ? btn.querySelector("i")
-        : btn.closest("button").querySelector("i");
+      const icon = btn.tagName === "BUTTON" ? btn.querySelector("i") : btn.closest("button").querySelector("i");
       if (!icon) return;
-      if (input.type === "password") {
-        input.type     = "text";
-        icon.className = "fa-solid fa-eye-slash";
-      } else {
-        input.type     = "password";
-        icon.className = "fa-solid fa-eye";
-      }
+      if (input.type === "password") { input.type = "text"; icon.className = "fa-solid fa-eye-slash"; }
+      else { input.type = "password"; icon.className = "fa-solid fa-eye"; }
     }
-
     function showPwMsg(message, type) {
       const box = document.getElementById("pwMsg");
       if (!box) return;
-      box.style.display    = "block";
-      box.style.background = type === "error" ? "rgba(231,76,60,0.1)"  : "rgba(39,174,96,0.1)";
-      box.style.border     = type === "error" ? "1px solid rgba(231,76,60,0.4)" : "1px solid rgba(39,174,96,0.4)";
-      box.style.color      = type === "error" ? "#e74c3c" : "#27ae60";
-      box.innerHTML        = `<i class="fa-solid ${type === "error" ? "fa-circle-exclamation" : "fa-check-circle"}"></i> ${message}`;
-      if (type === "success") {
-        setTimeout(() => { box.style.display = "none"; }, 4000);
-      }
+      box.style.display = "block";
+      box.style.background = type === "error" ? "rgba(231,76,60,0.1)" : "rgba(39,174,96,0.1)";
+      box.style.border = type === "error" ? "1px solid rgba(231,76,60,0.4)" : "1px solid rgba(39,174,96,0.4)";
+      box.style.color = type === "error" ? "#e74c3c" : "#27ae60";
+      box.innerHTML = `<i class="fa-solid ${type === "error" ? "fa-circle-exclamation" : "fa-check-circle"}"></i> ${message}`;
+      if (type === "success") setTimeout(() => { box.style.display = "none"; }, 4000);
     }
-
     async function changePassword() {
       const currentPassword = document.getElementById("currentPassword").value;
       const newPassword     = document.getElementById("newPassword").value;
       const confirmPassword = document.getElementById("confirmPassword").value;
       const username        = localStorage.getItem("adminUser") || "admin";
       const btn             = document.getElementById("changePwBtn");
-
-      // Validations
-      if (!currentPassword || !newPassword || !confirmPassword) {
-        showPwMsg("Please fill all fields.", "error"); return;
-      }
-      if (newPassword.length < 4) {
-        showPwMsg("New password must be at least 4 characters.", "error"); return;
-      }
-      if (newPassword !== confirmPassword) {
-        showPwMsg("New password and confirm password do not match.", "error"); return;
-      }
-      if (currentPassword === newPassword) {
-        showPwMsg("New password must be different from current password.", "error"); return;
-      }
-
-      btn.disabled   = true;
-      btn.innerHTML  = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
-
+      if (!currentPassword || !newPassword || !confirmPassword) { showPwMsg("Please fill all fields.", "error"); return; }
+      if (newPassword.length < 4) { showPwMsg("Min 4 characters.", "error"); return; }
+      if (newPassword !== confirmPassword) { showPwMsg("Passwords do not match.", "error"); return; }
+      if (currentPassword === newPassword) { showPwMsg("New password must differ.", "error"); return; }
+      btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
       try {
-        const res  = await fetch("/api/change-password", {
-          method:  "POST",
-          headers: { "Content-Type": "application/json" },
-          body:    JSON.stringify({ username, currentPassword, newPassword })
-        });
-
+        const res  = await fetch("/api/change-password", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, currentPassword, newPassword }) });
         const data = await res.json();
-
         if (res.ok && data.success) {
-          showPwMsg("✅ Password changed successfully! Use new password on next login.", "success");
-          document.getElementById("currentPassword").value = "";
-          document.getElementById("newPassword").value     = "";
-          document.getElementById("confirmPassword").value = "";
-        } else {
-          showPwMsg(data.error || "Failed to change password.", "error");
-        }
-      } catch (err) {
-        showPwMsg("Cannot connect to server. Make sure node server.js is running.", "error");
-      } finally {
-        btn.disabled  = false;
-        btn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Save New Password';
-      }
+          showPwMsg("✅ Password changed! Use new password next time.", "success");
+          ["currentPassword","newPassword","confirmPassword"].forEach(id => document.getElementById(id).value = "");
+        } else { showPwMsg(data.error || "Failed.", "error"); }
+      } catch { showPwMsg("Cannot connect to server.", "error"); }
+      finally { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Save'; }
     }
   </script>
 </body>
