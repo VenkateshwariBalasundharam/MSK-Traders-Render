@@ -70,6 +70,11 @@ async function createTables() {
       )
     `);
 
+    // ✅ FIX: Auto-migrate — add role column if it was missing from old DB
+    await client.query(`
+      ALTER TABLE admin ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'staff'
+    `);
+
     // New: sales table
     await client.query(`
       CREATE TABLE IF NOT EXISTS sales (
@@ -127,6 +132,7 @@ async function createTables() {
       // Ensure admin is owner
       if (row.rows[0]?.role !== 'owner') {
         await client.query(`UPDATE admin SET role = 'owner' WHERE username = 'admin'`);
+        console.log("✅ Admin role updated to owner");
       }
     }
 
