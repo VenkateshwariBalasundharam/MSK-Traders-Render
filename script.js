@@ -16,10 +16,72 @@ let stockChartInst, stockChart2Inst, categoryChartInst, salesTrendChartInst;
 let currentBillSaleData = null; // for reprinting
 
 // ============================================
+//  ROLE HELPERS
+// ============================================
+function getRole()  { return localStorage.getItem("userRole") || "staff"; }
+function isOwner()  { return getRole() === "owner"; }
+
+function applyRolePermissions() {
+  const owner = isOwner();
+
+  // ── Sidebar: Manage Users — owner only ──────────
+  const usersNav = document.getElementById("usersNavItem");
+  if (usersNav) usersNav.style.display = owner ? "" : "none";
+
+  // ── Role badge ───────────────────────────────────
+  const badge = document.getElementById("sidebarRoleBadge");
+  if (badge) {
+    badge.textContent      = owner ? "Owner" : "Staff";
+    badge.style.background = owner ? "rgba(245,166,35,0.18)" : "rgba(19,98,168,0.2)";
+    badge.style.color      = owner ? "var(--accent)" : "#7ab8f5";
+    badge.style.border     = owner ? "1px solid rgba(245,166,35,0.3)" : "1px solid rgba(19,98,168,0.35)";
+  }
+
+  if (!owner) {
+    // ── Products: hide Add/Edit form card + header export/invoice buttons ──
+    const productAddCard = document.querySelector("#sec-products[data-section='products'] .card");
+    if (productAddCard) productAddCard.style.display = "none";
+    document.querySelectorAll("#sec-products .header-actions .btn")
+      .forEach(b => b.style.display = "none");
+
+    // ── Suppliers: hide Add Supplier card ──────────
+    const supAddCard = document.getElementById("supplierAddCard");
+    if (supAddCard) supAddCard.style.display = "none";
+
+    // ── Reports: hide Export CSV & Print ──────────
+    document.querySelectorAll("#sec-reports .header-actions .btn")
+      .forEach(b => b.style.display = "none");
+
+    // ── Staff notice banners ────────────────────────
+    _addViewOnlyBanner("sec-products", "You have view-only access to Products.");
+    _addViewOnlyBanner("sec-suppliers", "You have view-only access to Suppliers.");
+    _addViewOnlyBanner("sec-reports", "You can view reports but cannot export.");
+  }
+}
+
+// Inserts a small info banner at the top of a section for staff
+function _addViewOnlyBanner(sectionId, msg) {
+  const sec = document.getElementById(sectionId);
+  if (!sec || sec.querySelector(".staff-banner")) return;
+  const banner = document.createElement("div");
+  banner.className = "staff-banner";
+  banner.style.cssText = "display:flex;align-items:center;gap:10px;padding:10px 16px;background:rgba(19,98,168,0.1);border:1px solid rgba(19,98,168,0.25);border-radius:10px;margin-bottom:14px;font-size:0.83rem;color:#7ab8f5;";
+  banner.innerHTML = `<i class="fa-solid fa-circle-info" style="font-size:15px"></i> ${msg}`;
+  sec.insertBefore(banner, sec.querySelector(".card") || sec.firstChild);
+}
+
+// ============================================
 //  API HELPER
 // ============================================
 async function apiCall(method, endpoint, body = null) {
-  const options = { method, headers: { "Content-Type": "application/json" } };
+  const username = localStorage.getItem("adminUser") || "";
+  const options  = {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      "X-Username": username          // sent with every request for server-side role check
+    }
+  };
   if (body) options.body = JSON.stringify(body);
   const res = await fetch(API + endpoint, options);
   if (!res.ok) {
@@ -68,6 +130,12 @@ function showToast(message, type = "success") {
 //  NAVIGATION
 // ============================================
 function showSection(name) {
+  // ── Role guard: block staff from users section ──
+  if (name === "users" && !isOwner()) {
+    showToast("Access denied. Owner only.", "error");
+    return;
+  }
+
   document.querySelectorAll(".section").forEach(s => s.classList.remove("active"));
   document.querySelectorAll(".nav-item").forEach(n => n.classList.remove("active"));
   const sec = document.getElementById("sec-" + name);
@@ -138,6 +206,7 @@ function formatDate(val) {
 //  ADD / UPDATE PRODUCT
 // ============================================
 async function addProduct() {
+  if (!isOwner()) { showToast("Access denied. Owner only.", "error"); return; }
   const name          = document.getElementById("productName").value.trim();
   const batch         = document.getElementById("batchNo").value.trim();
   const supplier      = document.getElementById("supplier").value;
@@ -182,6 +251,7 @@ async function addProduct() {
 }
 
 async function deleteProduct(id) {
+  if (!isOwner()) { showToast("Access denied. Owner only.", "error"); return; }
   if (!confirm("Delete this product from the database?")) return;
   try {
     await apiCall("DELETE", "/products/" + id);
@@ -270,8 +340,8 @@ function renderTable() {
       <td class="${expiryClass}">${p.expiry||"—"}</td>
       <td>${statusTag}</td>
       <td><div class="action-btns">
-        <button class="btn btn-sm btn-edit" onclick="editProduct(${p.id})"><i class="fa-solid fa-pen"></i></button>
-        <button class="btn btn-sm btn-del"  onclick="deleteProduct(${p.id})"><i class="fa-solid fa-trash"></i></button>
+        ${isOwner() ? `<button class="btn btn-sm btn-edit" onclick="editProduct(${p.id})"><i class="fa-solid fa-pen"></i></button>
+        <button class="btn btn-sm btn-del" onclick="deleteProduct(${p.id})"><i class="fa-solid fa-trash"></i></button>` : `<span style="font-size:0.75rem;color:var(--text-light)"><i class="fa-solid fa-eye"></i> View only</span>`}
       </div></td>`;
     tbody.appendChild(row);
   });
@@ -292,6 +362,7 @@ async function loadSuppliers() {
 }
 
 async function addSupplier() {
+  if (!isOwner()) { showToast("Access denied. Owner only.", "error"); return; }
   const name    = document.getElementById("supplierName").value.trim();
   const contact = document.getElementById("supplierContact").value.trim();
   if (!name || !contact) { showToast("Please fill all supplier fields.", "error"); return; }
@@ -304,6 +375,7 @@ async function addSupplier() {
 }
 
 async function deleteSupplier(id) {
+  if (!isOwner()) { showToast("Access denied. Owner only.", "error"); return; }
   if (!confirm("Remove this supplier?")) return;
   try {
     await apiCall("DELETE", "/suppliers/" + id);
@@ -333,7 +405,7 @@ function renderSupplierTable() {
       <td><strong>${s.name}</strong></td>
       <td>${s.contact}</td>
       <td><div class="action-btns">
-        <button class="btn btn-sm btn-del" onclick="deleteSupplier(${s.id})"><i class="fa-solid fa-trash"></i></button>
+        ${isOwner() ? `<button class="btn btn-sm btn-del" onclick="deleteSupplier(${s.id})"><i class="fa-solid fa-trash"></i></button>` : `<span style="font-size:0.75rem;color:var(--text-light)"><i class="fa-solid fa-eye"></i> View only</span>`}
       </div></td>`;
     tbody.appendChild(row);
   });
@@ -823,7 +895,7 @@ function renderSalesTable() {
       <td>${dt}</td>
       <td><div class="action-btns">
         <button class="btn btn-sm btn-edit" onclick="viewBillDetails(${s.id})"><i class="fa-solid fa-eye"></i></button>
-        <button class="btn btn-sm btn-del"  onclick="deleteSale(${s.id})"><i class="fa-solid fa-trash"></i></button>
+        ${isOwner() ? `<button class="btn btn-sm btn-del" onclick="deleteSale(${s.id})"><i class="fa-solid fa-trash"></i></button>` : ""}
       </div></td>`;
     tbody.appendChild(row);
     loadBillItemCount(s.id, row.cells[3]);
@@ -873,6 +945,7 @@ function reprintBill() {
 }
 
 async function deleteSale(id) {
+  if (!isOwner()) { showToast("Access denied. Owner only.", "error"); return; }
   if (!confirm("Delete this bill? This cannot be undone.")) return;
   try {
     await apiCall("DELETE", "/sales/" + id);
@@ -913,6 +986,7 @@ async function loadUsers() {
 }
 
 async function addUser() {
+  if (!isOwner()) { showToast("Access denied. Owner only.", "error"); return; }
   const username = document.getElementById("newUsername").value.trim();
   const password = document.getElementById("newUserPassword").value;
   const role     = document.getElementById("newUserRole").value;
@@ -946,6 +1020,7 @@ async function addUser() {
 }
 
 async function deleteUser(id, username) {
+  if (!isOwner()) { showToast("Access denied. Owner only.", "error"); return; }
   if (!confirm(`Remove user "${username}"? They will no longer be able to log in.`)) return;
   try {
     await apiCall("DELETE", "/users/" + id);
@@ -1033,10 +1108,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (sidebarUser) sidebarUser.textContent = user;
   if (dashUser)    dashUser.textContent    = user;
 
-  if (role === "owner") {
-    const nav = document.getElementById("usersNavItem");
-    if (nav) nav.style.display = "";
-  }
+  applyRolePermissions();
 
   try {
     await checkDBStatus();
@@ -1440,6 +1512,8 @@ function printReport() {
 // ============================================
 //  EXPOSE GLOBALS
 // ============================================
+window.isOwner          = isOwner;
+window.applyRolePermissions = applyRolePermissions;
 window.showSection      = showSection;
 window.toggleSidebar    = toggleSidebar;
 window.closeSidebar     = closeSidebar;

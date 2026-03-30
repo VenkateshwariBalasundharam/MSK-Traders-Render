@@ -29,6 +29,26 @@ const pool = new Pool({
 });
 
 // ============================================
+//  ROLE MIDDLEWARE
+// ============================================
+// Client sends X-Username header; we look up their role and enforce owner-only routes.
+async function requireOwner(req, res, next) {
+  const username = (req.headers["x-username"] || "").trim();
+  if (!username) return res.status(403).json({ error: "Access denied: not authenticated" });
+  try {
+    const result = await pool.query(
+      `SELECT role FROM admin WHERE LOWER(username) = LOWER($1)`, [username]
+    );
+    if (!result.rows.length || result.rows[0].role !== "owner") {
+      return res.status(403).json({ error: "Access denied: owner only" });
+    }
+    next();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ============================================
 //  AUTO CREATE TABLES
 // ============================================
 async function createTables() {
@@ -235,7 +255,7 @@ app.get("/api/users", async (req, res) => {
   }
 });
 
-app.post("/api/users", async (req, res) => {
+app.post("/api/users", requireOwner, async (req, res) => {
   const { username, password, role } = req.body;
   if (!username || !password)
     return res.status(400).json({ error: "Username and password are required" });
@@ -254,7 +274,7 @@ app.post("/api/users", async (req, res) => {
   }
 });
 
-app.delete("/api/users/:id", async (req, res) => {
+app.delete("/api/users/:id", requireOwner, async (req, res) => {
   const id = parseInt(req.params.id);
   try {
     // Prevent deleting the last owner
@@ -293,7 +313,7 @@ app.get("/api/products", async (req, res) => {
   }
 });
 
-app.post("/api/products", async (req, res) => {
+app.post("/api/products", requireOwner, async (req, res) => {
   const { name, batch_no, supplier, category, quantity,
           purchase_price, selling_price, purchase_date, expiry_date, status } = req.body;
   if (!name || !batch_no || !quantity || !expiry_date)
@@ -318,7 +338,7 @@ app.post("/api/products", async (req, res) => {
   }
 });
 
-app.put("/api/products/:id", async (req, res) => {
+app.put("/api/products/:id", requireOwner, async (req, res) => {
   const id = parseInt(req.params.id);
   const { name, batch_no, supplier, category, quantity,
           purchase_price, selling_price, purchase_date, expiry_date, status } = req.body;
@@ -339,7 +359,7 @@ app.put("/api/products/:id", async (req, res) => {
   }
 });
 
-app.delete("/api/products/:id", async (req, res) => {
+app.delete("/api/products/:id", requireOwner, async (req, res) => {
   const id = parseInt(req.params.id);
   try {
     const result = await pool.query("DELETE FROM products WHERE id=$1", [id]);
@@ -364,7 +384,7 @@ app.get("/api/suppliers", async (req, res) => {
   }
 });
 
-app.post("/api/suppliers", async (req, res) => {
+app.post("/api/suppliers", requireOwner, async (req, res) => {
   const { name, contact } = req.body;
   if (!name || !contact)
     return res.status(400).json({ error: "Missing required fields: name, contact" });
@@ -379,7 +399,7 @@ app.post("/api/suppliers", async (req, res) => {
   }
 });
 
-app.delete("/api/suppliers/:id", async (req, res) => {
+app.delete("/api/suppliers/:id", requireOwner, async (req, res) => {
   const id = parseInt(req.params.id);
   try {
     const result = await pool.query("DELETE FROM suppliers WHERE id=$1", [id]);
@@ -482,7 +502,7 @@ app.post("/api/sales", async (req, res) => {
   }
 });
 
-app.delete("/api/sales/:id", async (req, res) => {
+app.delete("/api/sales/:id", requireOwner, async (req, res) => {
   const id = parseInt(req.params.id);
   try {
     await pool.query("DELETE FROM sales WHERE id=$1", [id]);
