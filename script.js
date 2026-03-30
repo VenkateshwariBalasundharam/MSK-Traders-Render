@@ -83,6 +83,7 @@ function showSection(name) {
   if (name === "billing")   initBilling();
   if (name === "sales")     loadSales();
   if (name === "users")     loadUsers();
+  if (name === "reports")   loadReports();
   closeSidebar();
 }
 
@@ -1054,6 +1055,389 @@ document.addEventListener("DOMContentLoaded", async () => {
 });
 
 // ============================================
+//  REPORTS MODULE
+// ============================================
+let rptBarChartInst = null, rptPieChartInst = null, rptTrendChartInst = null;
+let rptProductData = []; // cached for filter
+
+function initReportFilters() {
+  const now = new Date();
+  const monthSel = document.getElementById("reportMonth");
+  const yearSel  = document.getElementById("reportYear");
+  if (!monthSel || !yearSel) return;
+
+  // Populate year dropdown (current year back 3 years)
+  if (!yearSel.options.length) {
+    const cy = now.getFullYear();
+    for (let y = cy; y >= cy - 3; y--) {
+      const opt = document.createElement("option");
+      opt.value = y; opt.textContent = y;
+      yearSel.appendChild(opt);
+    }
+  }
+  // Set defaults to current month/year only on first call
+  if (!monthSel.dataset.init) {
+    monthSel.value = now.getMonth() + 1;
+    yearSel.value  = now.getFullYear();
+    monthSel.dataset.init = "1";
+  }
+}
+
+async function loadReports() {
+  initReportFilters();
+  const month    = parseInt(document.getElementById("reportMonth")?.value || new Date().getMonth() + 1);
+  const year     = parseInt(document.getElementById("reportYear")?.value  || new Date().getFullYear());
+  const viewMode = document.getElementById("reportView")?.value || "month";
+
+  // Show/hide trend card
+  const trendCard = document.getElementById("rptTrendCard");
+  if (trendCard) trendCard.style.display = viewMode === "year" ? "" : "none";
+
+  // Build date range
+  let fromDate, toDate;
+  if (viewMode === "year") {
+    fromDate = `${year}-01-01`;
+    toDate   = `${year}-12-31`;
+  } else {
+    const lastDay = new Date(year, month, 0).getDate();
+    fromDate = `${year}-${String(month).padStart(2,"0")}-01`;
+    toDate   = `${year}-${String(month).padStart(2,"0")}-${lastDay}`;
+  }
+
+  try {
+    // 1. Fetch sales for the period
+    const salesData = await apiCall("GET", `/sales?from=${fromDate}&to=${toDate}`);
+
+    // 2. Compute revenue/discount totals from sales
+    let totalRevenue  = 0, totalDiscount = 0, totalNetRevenue = 0;
+    salesData.forEach(s => {
+      totalRevenue    += parseFloat(s.total_amount || 0);
+      totalDiscount   += parseFloat(s.discount || 0);
+      totalNetRevenue += parseFloat(s.final_amount || 0);
+    });
+
+    // 3. Fetch sale items for product breakdown
+    const allItems = [];
+    for (const sale of salesData) {
+      try {
+        const items = await apiCall("GET", `/sales/${sale.id}/items`);
+        items.forEach(it => it._saleDate = sale.createdAt || sale["createdAt"]);
+        allItems.push(...items);
+      } catch {}
+    }
+
+    // 4. Aggregate per product
+    const productMap = {};
+    allItems.forEach(it => {
+      const key = it.product_name || "Unknown";
+      if (!productMap[key]) {
+        // Look up product details from local cache
+        const local = products.find(p => p.id === it.product_id);
+        productMap[key] = {
+          name:          key,
+          category:      local?.category || "—",
+          purchasePrice: parseFloat(local?.purchasePrice || 0),
+          sellingPrice:  parseFloat(local?.sellingPrice  || it.unit_price || 0),
+          qtySold:       0,
+          revenue:       0,
+          cost:          0
+        };
+      }
+      const qty  = parseInt(it.quantity || 0);
+      const rev  = parseFloat(it.line_total || 0);
+      productMap[key].qtySold  += qty;
+      productMap[key].revenue  += rev;
+      productMap[key].cost     += productMap[key].purchasePrice * qty;
+    });
+
+    rptProductData = Object.values(productMap).map(p => ({
+      ...p,
+      profit: p.revenue - p.cost,
+      margin: p.revenue > 0 ? ((p.revenue - p.cost) / p.revenue * 100) : 0
+    })).sort((a, b) => b.revenue - a.revenue);
+
+    // 5. Totals
+    const totalCost   = rptProductData.reduce((s, p) => s + p.cost,   0);
+    const totalProfit = rptProductData.reduce((s, p) => s + p.profit, 0);
+    const netPL       = totalNetRevenue - totalCost;
+
+    // 6. Update KPI cards
+    const fmt = v => "₹" + Math.abs(v).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const setEl = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    setEl("rptRevenue", fmt(totalNetRevenue));
+    setEl("rptCost",    fmt(totalCost));
+    setEl("rptProfit",  fmt(totalProfit));
+    setEl("rptPL",      (netPL >= 0 ? "+" : "-") + fmt(netPL));
+
+    // Color P&L card
+    const plCard = document.getElementById("rptPLCard");
+    const plIcon = document.getElementById("rptPLIcon");
+    if (plCard && plIcon) {
+      const pos = netPL >= 0;
+      plCard.style.background = pos
+        ? "linear-gradient(135deg,rgba(39,174,96,0.12),rgba(39,174,96,0.04))"
+        : "linear-gradient(135deg,rgba(231,76,60,0.12),rgba(231,76,60,0.04))";
+      plCard.style.border = pos ? "1px solid rgba(39,174,96,0.3)" : "1px solid rgba(231,76,60,0.3)";
+      plIcon.style.background = pos ? "rgba(39,174,96,0.12)" : "rgba(231,76,60,0.12)";
+      plIcon.style.color      = pos ? "var(--green)" : "var(--red)";
+      document.getElementById("rptPL").style.color = pos ? "var(--green)" : "var(--red)";
+    }
+
+    // 7. Render product table
+    renderReportProductTable();
+
+    // 8. Charts
+    renderRptBarChart(totalNetRevenue, totalCost, totalProfit);
+    renderRptPieChart(totalNetRevenue, totalCost, totalDiscount);
+
+    // 9. Monthly summary table
+    await renderMonthlyTable(year, viewMode, month);
+
+    // 10. Trend chart (year only)
+    if (viewMode === "year") await renderRptTrendChart(year);
+
+  } catch (err) {
+    showToast("Report load failed: " + err.message, "error");
+  }
+}
+
+function renderReportProductTable() {
+  const q     = (document.getElementById("rptProductSearch")?.value || "").toLowerCase();
+  const tbody = document.querySelector("#rptProductTable tbody");
+  if (!tbody) return;
+  const filtered = q ? rptProductData.filter(p => p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q)) : rptProductData;
+  if (!filtered.length) {
+    tbody.innerHTML = `<tr><td colspan="11" class="table-loading" style="color:var(--text-light)">No product sales found for this period.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = filtered.map((p, i) => {
+    const profitColor = p.profit >= 0 ? "var(--green)" : "var(--red)";
+    const statusTag   = p.profit >= 0
+      ? `<span class="tag-received">Profit</span>`
+      : `<span class="tag-pending">Loss</span>`;
+    return `<tr>
+      <td>${i+1}</td>
+      <td><strong>${p.name}</strong></td>
+      <td>${p.category}</td>
+      <td>${p.qtySold}</td>
+      <td>₹${p.purchasePrice.toFixed(2)}</td>
+      <td>₹${p.sellingPrice.toFixed(2)}</td>
+      <td>₹${p.revenue.toFixed(2)}</td>
+      <td>₹${p.cost.toFixed(2)}</td>
+      <td style="color:${profitColor};font-weight:700">₹${Math.abs(p.profit).toFixed(2)}</td>
+      <td>${p.margin.toFixed(1)}%</td>
+      <td>${statusTag}</td>
+    </tr>`;
+  }).join("");
+}
+
+function filterReportTable() {
+  renderReportProductTable();
+}
+
+function renderRptBarChart(revenue, cost, profit) {
+  const ctx = document.getElementById("rptBarChart");
+  if (!ctx) return;
+  if (rptBarChartInst) { rptBarChartInst.destroy(); rptBarChartInst = null; }
+  rptBarChartInst = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels: ["Revenue", "Purchase Cost", "Gross Profit"],
+      datasets: [{
+        data: [revenue, cost, profit],
+        backgroundColor: ["#1362a8","#e67e22", profit >= 0 ? "#27ae60" : "#e74c3c"],
+        borderRadius: 8, borderSkipped: false
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { beginAtZero: true, grid: { color: "rgba(0,0,0,0.05)" },
+             ticks: { callback: v => "₹" + v.toLocaleString("en-IN") } },
+        x: { grid: { display: false } }
+      }
+    }
+  });
+}
+
+function renderRptPieChart(revenue, cost, discount) {
+  const ctx = document.getElementById("rptPieChart");
+  if (!ctx) return;
+  if (rptPieChartInst) { rptPieChartInst.destroy(); rptPieChartInst = null; }
+  const profit = revenue - cost;
+  rptPieChartInst = new Chart(ctx, {
+    type: "doughnut",
+    data: {
+      labels: ["Net Profit", "Purchase Cost", "Discounts Given"],
+      datasets: [{ data: [Math.max(profit, 0), cost, discount],
+        backgroundColor: ["#27ae60","#1362a8","#f5a623"],
+        borderWidth: 2, borderColor: "var(--card-bg)" }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: "bottom", labels: { font: { size: 12 }, padding: 12 } } }
+    }
+  });
+}
+
+async function renderRptTrendChart(year) {
+  const ctx = document.getElementById("rptTrendChart");
+  if (!ctx) return;
+  if (rptTrendChartInst) { rptTrendChartInst.destroy(); rptTrendChartInst = null; }
+  try {
+    // Fetch monthly breakdown for the year
+    const months = [];
+    for (let m = 1; m <= 12; m++) {
+      const lastDay = new Date(year, m, 0).getDate();
+      const from = `${year}-${String(m).padStart(2,"0")}-01`;
+      const to   = `${year}-${String(m).padStart(2,"0")}-${lastDay}`;
+      const data = await apiCall("GET", `/sales?from=${from}&to=${to}`);
+      const net  = data.reduce((s, r) => s + parseFloat(r.final_amount || 0), 0);
+      months.push({ label: new Date(year, m-1).toLocaleString("en-IN",{month:"short"}), net });
+    }
+    rptTrendChartInst = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels: months.map(m => m.label),
+        datasets: [{
+          label: "Net Revenue (₹)",
+          data: months.map(m => m.net),
+          borderColor: "#27ae60", backgroundColor: "rgba(39,174,96,0.1)",
+          tension: 0.4, fill: true, pointBackgroundColor: "#27ae60",
+          pointRadius: 5, borderWidth: 2
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: { beginAtZero: true, ticks: { callback: v => "₹" + v.toLocaleString("en-IN") } },
+          x: { grid: { display: false } }
+        }
+      }
+    });
+  } catch {}
+}
+
+async function renderMonthlyTable(year, viewMode, selectedMonth) {
+  const tbody = document.querySelector("#rptMonthlyTable tbody");
+  if (!tbody) return;
+  tbody.innerHTML = `<tr><td colspan="5" class="table-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</td></tr>`;
+
+  const monthsToShow = viewMode === "year"
+    ? Array.from({length: 12}, (_, i) => i + 1)
+    : [selectedMonth];
+
+  const rows = [];
+  for (const m of monthsToShow) {
+    const lastDay = new Date(year, m, 0).getDate();
+    const from = `${year}-${String(m).padStart(2,"0")}-01`;
+    const to   = `${year}-${String(m).padStart(2,"0")}-${lastDay}`;
+    try {
+      const data = await apiCall("GET", `/sales?from=${from}&to=${to}`);
+      const bills   = data.length;
+      const revenue = data.reduce((s, r) => s + parseFloat(r.total_amount || 0), 0);
+      const discounts = data.reduce((s, r) => s + parseFloat(r.discount || 0), 0);
+      const net     = data.reduce((s, r) => s + parseFloat(r.final_amount || 0), 0);
+      const label   = new Date(year, m-1).toLocaleString("en-IN", { month: "long" }) + " " + year;
+      rows.push({ label, bills, revenue, discounts, net });
+    } catch {
+      const label = new Date(year, m-1).toLocaleString("en-IN", { month: "long" }) + " " + year;
+      rows.push({ label, bills: 0, revenue: 0, discounts: 0, net: 0 });
+    }
+  }
+
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="5" class="table-loading" style="color:var(--text-light)">No data found.</td></tr>`;
+    return;
+  }
+
+  const fmt = v => "₹" + parseFloat(v).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  tbody.innerHTML = rows.map(r => `<tr>
+    <td><strong>${r.label}</strong></td>
+    <td>${r.bills}</td>
+    <td>${fmt(r.revenue)}</td>
+    <td style="color:var(--orange)">${fmt(r.discounts)}</td>
+    <td style="color:var(--green);font-weight:700">${fmt(r.net)}</td>
+  </tr>`).join("");
+}
+
+function exportReportCSV() {
+  if (!rptProductData.length) { showToast("No report data to export.", "error"); return; }
+  const headers = ["#","Product","Category","Qty Sold","Purchase Price","Selling Price","Revenue","Cost","Profit","Margin %","Status"];
+  const rows = rptProductData.map((p, i) => [
+    i+1, p.name, p.category, p.qtySold,
+    p.purchasePrice.toFixed(2), p.sellingPrice.toFixed(2),
+    p.revenue.toFixed(2), p.cost.toFixed(2),
+    p.profit.toFixed(2), p.margin.toFixed(1) + "%",
+    p.profit >= 0 ? "Profit" : "Loss"
+  ]);
+  const month  = document.getElementById("reportMonth")?.value || "";
+  const year   = document.getElementById("reportYear")?.value  || "";
+  const csv    = [headers, ...rows].map(r => r.map(v => `"${v}"`).join(",")).join("\n");
+  const blob   = new Blob([csv], { type: "text/csv" });
+  const url    = URL.createObjectURL(blob);
+  const a      = document.createElement("a");
+  a.href = url; a.download = `MSK_Report_${month}_${year}.csv`; a.click();
+  URL.revokeObjectURL(url);
+  showToast("Report exported!");
+}
+
+function printReport() {
+  const month = document.getElementById("reportMonth");
+  const year  = document.getElementById("reportYear");
+  const mLabel = month?.options[month.selectedIndex]?.text || "";
+  const yLabel = year?.value || "";
+
+  const rev  = document.getElementById("rptRevenue")?.textContent || "—";
+  const cost = document.getElementById("rptCost")?.textContent    || "—";
+  const profit = document.getElementById("rptProfit")?.textContent || "—";
+  const pl   = document.getElementById("rptPL")?.textContent      || "—";
+
+  const rows = rptProductData.map((p, i) => `<tr>
+    <td>${i+1}</td><td>${p.name}</td><td>${p.category}</td><td>${p.qtySold}</td>
+    <td>₹${p.purchasePrice.toFixed(2)}</td><td>₹${p.sellingPrice.toFixed(2)}</td>
+    <td>₹${p.revenue.toFixed(2)}</td><td>₹${p.cost.toFixed(2)}</td>
+    <td style="color:${p.profit>=0?"#27ae60":"#e74c3c"};font-weight:700">₹${Math.abs(p.profit).toFixed(2)}</td>
+    <td>${p.margin.toFixed(1)}%</td>
+    <td>${p.profit>=0?"Profit":"Loss"}</td>
+  </tr>`).join("");
+
+  const win = window.open("", "_blank");
+  win.document.write(`<!DOCTYPE html><html><head>
+    <title>MSK Traders Report</title>
+    <style>
+      body{font-family:Arial,sans-serif;padding:30px;color:#1a2b45}
+      h1{font-size:24px;letter-spacing:3px;color:#0b2545;margin:0}
+      .sub{color:#6b7a99;font-size:12px;margin-bottom:20px}
+      .kpis{display:flex;gap:20px;margin:16px 0;flex-wrap:wrap}
+      .kpi{background:#f0f4fa;border-radius:10px;padding:14px 20px;min-width:160px}
+      .kpi .label{font-size:11px;color:#6b7a99;text-transform:uppercase;letter-spacing:1px}
+      .kpi .val{font-size:1.4rem;font-weight:700;color:#0b2545;margin-top:4px}
+      table{width:100%;border-collapse:collapse;margin-top:20px;font-size:12px}
+      th{background:#0b2545;color:white;padding:8px 10px;text-align:left}
+      td{padding:7px 10px;border-bottom:1px solid #dde3f0}
+      tr:hover{background:#f7f9ff}
+      @media print{button{display:none}}
+    </style></head><body>
+    <h1>MSK TRADERS — REPORT</h1>
+    <p class="sub">Period: ${mLabel} ${yLabel} &nbsp;|&nbsp; Generated: ${new Date().toLocaleDateString("en-IN",{dateStyle:"long"})}</p>
+    <button onclick="window.print()" style="padding:8px 18px;background:#0b2545;color:white;border:none;border-radius:6px;cursor:pointer">🖨 Print</button>
+    <div class="kpis">
+      <div class="kpi"><div class="label">Total Revenue</div><div class="val">${rev}</div></div>
+      <div class="kpi"><div class="label">Purchase Cost</div><div class="val">${cost}</div></div>
+      <div class="kpi"><div class="label">Gross Profit</div><div class="val">${profit}</div></div>
+      <div class="kpi"><div class="label">Net P&L</div><div class="val" style="color:${pl.startsWith("+")?"#27ae60":"#e74c3c"}">${pl}</div></div>
+    </div>
+    <table>
+      <thead><tr><th>#</th><th>Product</th><th>Category</th><th>Qty</th><th>Purchase</th><th>Selling</th><th>Revenue</th><th>Cost</th><th>Profit</th><th>Margin</th><th>Status</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></body></html>`);
+  win.document.close();
+}
+
+// ============================================
 //  EXPOSE GLOBALS
 // ============================================
 window.showSection      = showSection;
@@ -1088,3 +1472,7 @@ window.loadUsers        = loadUsers;
 window.addUser          = addUser;
 window.deleteUser       = deleteUser;
 window.openAddUserModal = openAddUserModal;
+window.loadReports      = loadReports;
+window.filterReportTable= filterReportTable;
+window.exportReportCSV  = exportReportCSV;
+window.printReport      = printReport;

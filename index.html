@@ -100,6 +100,9 @@
         <a class="nav-item" onclick="showSection('stock')">
           <i class="fa-solid fa-boxes-stacked"></i> Stock Overview
         </a>
+        <a class="nav-item" onclick="showSection('reports')">
+          <i class="fa-solid fa-file-chart-column"></i> Reports
+        </a>
         <a class="nav-item" id="usersNavItem" onclick="showSection('users')" style="display:none">
           <i class="fa-solid fa-users"></i> Manage Users
         </a>
@@ -615,6 +618,123 @@
           </div>
         </div>
       </div>
+
+      <!-- ===== REPORTS ===== -->
+      <section id="sec-reports" class="section">
+        <div class="page-header">
+          <div>
+            <h1 class="page-title">Reports</h1>
+            <p class="page-sub">Monthly income, profit &amp; loss, and product performance</p>
+          </div>
+          <div class="header-actions">
+            <button class="btn btn-green" onclick="exportReportCSV()"><i class="fa-solid fa-file-excel"></i> Export CSV</button>
+            <button class="btn btn-blue"  onclick="printReport()"><i class="fa-solid fa-print"></i> Print</button>
+          </div>
+        </div>
+
+        <!-- Filter Bar -->
+        <div class="card">
+          <div class="card-body" style="padding:16px 20px">
+            <div style="display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap">
+              <div class="field-wrap" style="flex:0 0 160px">
+                <label class="field-label-top">Month</label>
+                <select id="reportMonth" style="padding:11px 14px;border:1px solid var(--border);border-radius:10px;font-family:'DM Sans',sans-serif;font-size:0.88rem;color:var(--text);background:var(--input-bg);outline:none;width:100%">
+                  <option value="1">January</option><option value="2">February</option>
+                  <option value="3">March</option><option value="4">April</option>
+                  <option value="5">May</option><option value="6">June</option>
+                  <option value="7">July</option><option value="8">August</option>
+                  <option value="9">September</option><option value="10">October</option>
+                  <option value="11">November</option><option value="12">December</option>
+                </select>
+              </div>
+              <div class="field-wrap" style="flex:0 0 120px">
+                <label class="field-label-top">Year</label>
+                <select id="reportYear" style="padding:11px 14px;border:1px solid var(--border);border-radius:10px;font-family:'DM Sans',sans-serif;font-size:0.88rem;color:var(--text);background:var(--input-bg);outline:none;width:100%"></select>
+              </div>
+              <div class="field-wrap" style="flex:0 0 160px">
+                <label class="field-label-top">View</label>
+                <select id="reportView" style="padding:11px 14px;border:1px solid var(--border);border-radius:10px;font-family:'DM Sans',sans-serif;font-size:0.88rem;color:var(--text);background:var(--input-bg);outline:none;width:100%">
+                  <option value="month">Selected Month</option>
+                  <option value="year">Full Year</option>
+                </select>
+              </div>
+              <button class="btn btn-blue" onclick="loadReports()" style="height:42px;align-self:flex-end">
+                <i class="fa-solid fa-filter"></i> Apply Filter
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- KPI Cards -->
+        <div class="stats-grid" style="grid-template-columns:repeat(4,1fr);margin-top:16px">
+          <div class="stat-card stat-green">
+            <div class="stat-icon"><i class="fa-solid fa-indian-rupee-sign"></i></div>
+            <div class="stat-info"><div class="stat-label">Total Revenue</div><div class="stat-value" id="rptRevenue">—</div></div>
+          </div>
+          <div class="stat-card stat-blue">
+            <div class="stat-icon"><i class="fa-solid fa-boxes-stacked"></i></div>
+            <div class="stat-info"><div class="stat-label">Purchase Cost</div><div class="stat-value" id="rptCost">—</div></div>
+          </div>
+          <div class="stat-card stat-teal">
+            <div class="stat-icon"><i class="fa-solid fa-chart-line"></i></div>
+            <div class="stat-info"><div class="stat-label">Gross Profit</div><div class="stat-value" id="rptProfit">—</div></div>
+          </div>
+          <div class="stat-card" id="rptPLCard">
+            <div class="stat-icon" id="rptPLIcon"><i class="fa-solid fa-scale-balanced"></i></div>
+            <div class="stat-info"><div class="stat-label">Net P&amp;L</div><div class="stat-value" id="rptPL">—</div></div>
+          </div>
+        </div>
+
+        <!-- Charts Row -->
+        <div class="grid-2col" style="margin-top:16px">
+          <div class="card">
+            <div class="card-head"><h3><i class="fa-solid fa-chart-bar"></i> Revenue vs Cost</h3></div>
+            <div class="chart-wrap"><canvas id="rptBarChart"></canvas></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3><i class="fa-solid fa-chart-pie"></i> Profit Distribution</h3></div>
+            <div class="chart-wrap"><canvas id="rptPieChart"></canvas></div>
+          </div>
+        </div>
+
+        <!-- Trend (year view) -->
+        <div class="card" id="rptTrendCard" style="margin-top:16px;display:none">
+          <div class="card-head"><h3><i class="fa-solid fa-chart-line"></i> Monthly Trend</h3></div>
+          <div class="chart-wrap" style="height:260px"><canvas id="rptTrendChart"></canvas></div>
+        </div>
+
+        <!-- Product Performance Table -->
+        <div class="card" style="margin-top:16px">
+          <div class="card-head">
+            <h3><i class="fa-solid fa-pills"></i> Product Performance</h3>
+            <input type="text" id="rptProductSearch" placeholder="Search product..." oninput="filterReportTable()"
+              style="padding:7px 12px;border:1px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:0.85rem;background:var(--input-bg);color:var(--text);outline:none;width:200px">
+          </div>
+          <div class="table-scroll">
+            <table id="rptProductTable">
+              <thead>
+                <tr>
+                  <th>#</th><th>Product</th><th>Category</th><th>Qty Sold</th>
+                  <th>Purchase Price</th><th>Selling Price</th><th>Revenue (₹)</th>
+                  <th>Cost (₹)</th><th>Profit (₹)</th><th>Margin %</th><th>Status</th>
+                </tr>
+              </thead>
+              <tbody><tr><td colspan="11" class="table-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Monthly Income Summary -->
+        <div class="card" style="margin-top:16px">
+          <div class="card-head"><h3><i class="fa-solid fa-calendar-alt"></i> Monthly Income Summary</h3></div>
+          <div class="table-scroll">
+            <table id="rptMonthlyTable">
+              <thead><tr><th>Month</th><th>Bills</th><th>Revenue (₹)</th><th>Discounts (₹)</th><th>Net Revenue (₹)</th></tr></thead>
+              <tbody><tr><td colspan="5" class="table-loading">Loading...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
 
       <!-- ===== BILL DETAILS MODAL ===== -->
       <div id="billDetailsModal" class="modal-overlay" onclick="closeBillDetailsModal(event)">

@@ -538,6 +538,61 @@ app.get("/api/sales/monthly", async (req, res) => {
 });
 
 // ============================================
+//  API — REPORT: Product profit per date range
+// ============================================
+app.get("/api/report/products", async (req, res) => {
+  const { from, to } = req.query;
+  if (!from || !to) return res.status(400).json({ error: "from and to dates required" });
+  try {
+    const result = await pool.query(`
+      SELECT
+        si.product_name,
+        p.category,
+        SUM(si.quantity)    AS qty_sold,
+        AVG(p.purchase_price) AS purchase_price,
+        AVG(p.selling_price)  AS selling_price,
+        SUM(si.line_total)  AS revenue,
+        SUM(si.quantity * COALESCE(p.purchase_price, 0)) AS cost
+      FROM sale_items si
+      JOIN sales s ON si.sale_id = s.id
+      LEFT JOIN products p ON si.product_id = p.id
+      WHERE DATE(s."createdAt") BETWEEN $1 AND $2
+      GROUP BY si.product_name, p.category
+      ORDER BY revenue DESC
+    `, [from, to]);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
+//  API — REPORT: Monthly breakdown for a year
+// ============================================
+app.get("/api/report/monthly", async (req, res) => {
+  const { year } = req.query;
+  if (!year) return res.status(400).json({ error: "year required" });
+  try {
+    const result = await pool.query(`
+      SELECT
+        TO_CHAR(DATE_TRUNC('month', s."createdAt"), 'Mon YYYY') AS month,
+        EXTRACT(MONTH FROM s."createdAt") AS month_num,
+        COUNT(s.id) AS bills,
+        COALESCE(SUM(s.total_amount), 0)  AS revenue,
+        COALESCE(SUM(s.discount), 0)      AS discounts,
+        COALESCE(SUM(s.final_amount), 0)  AS net_revenue
+      FROM sales s
+      WHERE EXTRACT(YEAR FROM s."createdAt") = $1
+      GROUP BY DATE_TRUNC('month', s."createdAt"), EXTRACT(MONTH FROM s."createdAt")
+      ORDER BY month_num ASC
+    `, [parseInt(year)]);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
 //  STATIC ROUTES
 // ============================================
 app.get("/",           (req, res) => res.sendFile(path.join(__dirname, "login.html")));
