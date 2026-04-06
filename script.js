@@ -1273,33 +1273,70 @@ async function loadReports() {
 }
 
 function renderReportProductTable() {
-  const q     = (document.getElementById("rptProductSearch")?.value || "").toLowerCase();
-  const tbody = document.querySelector("#rptProductTable tbody");
-  if (!tbody) return;
-  const filtered = q ? rptProductData.filter(p => p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q)) : rptProductData;
-  if (!filtered.length) {
-    tbody.innerHTML = `<tr><td colspan="11" class="table-loading" style="color:var(--text-light)">No product sales found for this period.</td></tr>`;
-    return;
+  const q = (document.getElementById("rptProductSearch")?.value || "").toLowerCase();
+  const filtered = q
+    ? rptProductData.filter(p => p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q))
+    : rptProductData;
+
+  const profitItems = filtered.filter(p => p.profit >= 0).sort((a, b) => b.profit - a.profit);
+  const lossItems   = filtered.filter(p => p.profit < 0).sort((a, b) => a.profit - b.profit);
+
+  const fmt = v => "₹" + Math.abs(v).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  // --- PROFIT TABLE ---
+  const profitTbody = document.querySelector("#rptProfitTable tbody");
+  if (profitTbody) {
+    if (!profitItems.length) {
+      profitTbody.innerHTML = `<tr><td colspan="10" class="table-loading" style="color:var(--text-light)">No profit items for this period.</td></tr>`;
+    } else {
+      profitTbody.innerHTML = profitItems.map((p, i) => `<tr>
+        <td>${i+1}</td>
+        <td><strong>${p.name}</strong></td>
+        <td>${p.category}</td>
+        <td>${p.qtySold}</td>
+        <td>₹${p.purchasePrice.toFixed(2)}</td>
+        <td>₹${p.sellingPrice.toFixed(2)}</td>
+        <td>₹${p.revenue.toFixed(2)}</td>
+        <td>₹${p.cost.toFixed(2)}</td>
+        <td style="color:var(--green);font-weight:700">${fmt(p.profit)}</td>
+        <td style="color:var(--green)">${p.margin.toFixed(1)}%</td>
+      </tr>`).join("");
+    }
   }
-  tbody.innerHTML = filtered.map((p, i) => {
-    const profitColor = p.profit >= 0 ? "var(--green)" : "var(--red)";
-    const statusTag   = p.profit >= 0
-      ? `<span class="tag-received">Profit</span>`
-      : `<span class="tag-pending">Loss</span>`;
-    return `<tr>
-      <td>${i+1}</td>
-      <td><strong>${p.name}</strong></td>
-      <td>${p.category}</td>
-      <td>${p.qtySold}</td>
-      <td>₹${p.purchasePrice.toFixed(2)}</td>
-      <td>₹${p.sellingPrice.toFixed(2)}</td>
-      <td>₹${p.revenue.toFixed(2)}</td>
-      <td>₹${p.cost.toFixed(2)}</td>
-      <td style="color:${profitColor};font-weight:700">₹${Math.abs(p.profit).toFixed(2)}</td>
-      <td>${p.margin.toFixed(1)}%</td>
-      <td>${statusTag}</td>
-    </tr>`;
-  }).join("");
+  const profitBadge = document.getElementById("rptProfitTableBadge");
+  if (profitBadge) profitBadge.textContent = profitItems.length + " item" + (profitItems.length !== 1 ? "s" : "");
+
+  // --- LOSS TABLE ---
+  const lossTbody = document.querySelector("#rptLossTable tbody");
+  if (lossTbody) {
+    if (!lossItems.length) {
+      lossTbody.innerHTML = `<tr><td colspan="10" class="table-loading" style="color:var(--text-light)">No loss items for this period. 🎉</td></tr>`;
+    } else {
+      lossTbody.innerHTML = lossItems.map((p, i) => `<tr>
+        <td>${i+1}</td>
+        <td><strong>${p.name}</strong></td>
+        <td>${p.category}</td>
+        <td>${p.qtySold}</td>
+        <td>₹${p.purchasePrice.toFixed(2)}</td>
+        <td>₹${p.sellingPrice.toFixed(2)}</td>
+        <td>₹${p.revenue.toFixed(2)}</td>
+        <td>₹${p.cost.toFixed(2)}</td>
+        <td style="color:var(--red);font-weight:700">${fmt(p.profit)}</td>
+        <td style="color:var(--red)">${p.margin.toFixed(1)}%</td>
+      </tr>`).join("");
+    }
+  }
+  const lossBadge = document.getElementById("rptLossTableBadge");
+  if (lossBadge) lossBadge.textContent = lossItems.length + " item" + (lossItems.length !== 1 ? "s" : "");
+
+  // --- Summary strip counters ---
+  const totalProfitEarned = profitItems.reduce((s, p) => s + p.profit, 0);
+  const totalLossAmount   = lossItems.reduce((s, p)  => s + Math.abs(p.profit), 0);
+  const setEl = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  setEl("rptProfitCount",       profitItems.length);
+  setEl("rptLossCount",         lossItems.length);
+  setEl("rptTotalProfitEarned", fmt(totalProfitEarned));
+  setEl("rptTotalLossAmount",   fmt(totalLossAmount));
 }
 
 function filterReportTable() {
@@ -1436,23 +1473,30 @@ async function renderMonthlyTable(year, viewMode, selectedMonth) {
 
 function exportReportCSV() {
   if (!rptProductData.length) { showToast("No report data to export.", "error"); return; }
-  const headers = ["#","Product","Category","Qty Sold","Purchase Price","Selling Price","Revenue","Cost","Profit","Margin %","Status"];
-  const rows = rptProductData.map((p, i) => [
+  const month = document.getElementById("reportMonth")?.value || "";
+  const year  = document.getElementById("reportYear")?.value  || "";
+  const headers = ["#","Product","Category","Qty Sold","Purchase Price","Selling Price","Revenue","Cost","Profit/Loss","Margin %","Status"];
+  const profitItems = rptProductData.filter(p => p.profit >= 0).sort((a,b) => b.profit - a.profit);
+  const lossItems   = rptProductData.filter(p => p.profit <  0).sort((a,b) => a.profit - b.profit);
+  const toRow = (p, i, status) => [
     i+1, p.name, p.category, p.qtySold,
     p.purchasePrice.toFixed(2), p.sellingPrice.toFixed(2),
     p.revenue.toFixed(2), p.cost.toFixed(2),
-    p.profit.toFixed(2), p.margin.toFixed(1) + "%",
-    p.profit >= 0 ? "Profit" : "Loss"
-  ]);
-  const month  = document.getElementById("reportMonth")?.value || "";
-  const year   = document.getElementById("reportYear")?.value  || "";
-  const csv    = [headers, ...rows].map(r => r.map(v => `"${v}"`).join(",")).join("\n");
-  const blob   = new Blob([csv], { type: "text/csv" });
-  const url    = URL.createObjectURL(blob);
-  const a      = document.createElement("a");
-  a.href = url; a.download = `MSK_Report_${month}_${year}.csv`; a.click();
+    Math.abs(p.profit).toFixed(2), p.margin.toFixed(1) + "%", status
+  ];
+  const rows = [
+    ["--- PROFIT ITEMS ---"], headers,
+    ...profitItems.map((p,i) => toRow(p, i, "Profit")),
+    [], ["--- LOSS ITEMS ---"], headers,
+    ...lossItems.map((p,i)  => toRow(p, i, "Loss"))
+  ];
+  const csv  = rows.map(r => r.map(v => `"${v}"`).join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href = url; a.download = `MSK_PL_Report_${month}_${year}.csv`; a.click();
   URL.revokeObjectURL(url);
-  showToast("Report exported!");
+  showToast("P&L Report exported!");
 }
 
 function printReport() {
@@ -1461,23 +1505,35 @@ function printReport() {
   const mLabel = month?.options[month.selectedIndex]?.text || "";
   const yLabel = year?.value || "";
 
-  const rev  = document.getElementById("rptRevenue")?.textContent || "—";
-  const cost = document.getElementById("rptCost")?.textContent    || "—";
-  const profit = document.getElementById("rptProfit")?.textContent || "—";
-  const pl   = document.getElementById("rptPL")?.textContent      || "—";
+  const rev    = document.getElementById("rptRevenue")?.textContent || "—";
+  const cost   = document.getElementById("rptCost")?.textContent    || "—";
+  const profit = document.getElementById("rptProfit")?.textContent  || "—";
+  const pl     = document.getElementById("rptPL")?.textContent      || "—";
 
-  const rows = rptProductData.map((p, i) => `<tr>
+  const profitItems = rptProductData.filter(p => p.profit >= 0).sort((a,b) => b.profit - a.profit);
+  const lossItems   = rptProductData.filter(p => p.profit <  0).sort((a,b) => a.profit - b.profit);
+
+  const tableHead = `<thead><tr><th>#</th><th>Product</th><th>Category</th><th>Qty</th><th>Purchase</th><th>Selling</th><th>Revenue</th><th>Cost</th><th>Amount</th><th>Margin</th></tr></thead>`;
+
+  const profitRows = profitItems.map((p,i) => `<tr>
     <td>${i+1}</td><td>${p.name}</td><td>${p.category}</td><td>${p.qtySold}</td>
     <td>₹${p.purchasePrice.toFixed(2)}</td><td>₹${p.sellingPrice.toFixed(2)}</td>
     <td>₹${p.revenue.toFixed(2)}</td><td>₹${p.cost.toFixed(2)}</td>
-    <td style="color:${p.profit>=0?"#27ae60":"#e74c3c"};font-weight:700">₹${Math.abs(p.profit).toFixed(2)}</td>
+    <td style="color:#27ae60;font-weight:700">+₹${p.profit.toFixed(2)}</td>
     <td>${p.margin.toFixed(1)}%</td>
-    <td>${p.profit>=0?"Profit":"Loss"}</td>
+  </tr>`).join("");
+
+  const lossRows = lossItems.map((p,i) => `<tr>
+    <td>${i+1}</td><td>${p.name}</td><td>${p.category}</td><td>${p.qtySold}</td>
+    <td>₹${p.purchasePrice.toFixed(2)}</td><td>₹${p.sellingPrice.toFixed(2)}</td>
+    <td>₹${p.revenue.toFixed(2)}</td><td>₹${p.cost.toFixed(2)}</td>
+    <td style="color:#e74c3c;font-weight:700">-₹${Math.abs(p.profit).toFixed(2)}</td>
+    <td>${p.margin.toFixed(1)}%</td>
   </tr>`).join("");
 
   const win = window.open("", "_blank");
   win.document.write(`<!DOCTYPE html><html><head>
-    <title>MSK Traders Report</title>
+    <title>MSK Traders P&L Report</title>
     <style>
       body{font-family:Arial,sans-serif;padding:30px;color:#1a2b45}
       h1{font-size:24px;letter-spacing:3px;color:#0b2545;margin:0}
@@ -1486,25 +1542,32 @@ function printReport() {
       .kpi{background:#f0f4fa;border-radius:10px;padding:14px 20px;min-width:160px}
       .kpi .label{font-size:11px;color:#6b7a99;text-transform:uppercase;letter-spacing:1px}
       .kpi .val{font-size:1.4rem;font-weight:700;color:#0b2545;margin-top:4px}
-      table{width:100%;border-collapse:collapse;margin-top:20px;font-size:12px}
+      .section-head{margin:24px 0 8px;padding:10px 16px;border-radius:8px;font-size:14px;font-weight:700;display:flex;align-items:center;gap:8px}
+      .profit-head{background:#e8f8f0;color:#1a7a45;border-left:4px solid #27ae60}
+      .loss-head{background:#fdf0ef;color:#922b1a;border-left:4px solid #e74c3c}
+      table{width:100%;border-collapse:collapse;margin-bottom:8px;font-size:12px}
       th{background:#0b2545;color:white;padding:8px 10px;text-align:left}
       td{padding:7px 10px;border-bottom:1px solid #dde3f0}
       tr:hover{background:#f7f9ff}
+      .no-data{padding:12px 16px;color:#9aa;font-style:italic;font-size:12px}
       @media print{button{display:none}}
     </style></head><body>
-    <h1>MSK TRADERS — REPORT</h1>
+    <h1>MSK TRADERS — PROFIT &amp; LOSS REPORT</h1>
     <p class="sub">Period: ${mLabel} ${yLabel} &nbsp;|&nbsp; Generated: ${new Date().toLocaleDateString("en-IN",{dateStyle:"long"})}</p>
     <button onclick="window.print()" style="padding:8px 18px;background:#0b2545;color:white;border:none;border-radius:6px;cursor:pointer">🖨 Print</button>
     <div class="kpis">
       <div class="kpi"><div class="label">Total Revenue</div><div class="val">${rev}</div></div>
       <div class="kpi"><div class="label">Purchase Cost</div><div class="val">${cost}</div></div>
       <div class="kpi"><div class="label">Gross Profit</div><div class="val">${profit}</div></div>
-      <div class="kpi"><div class="label">Net P&L</div><div class="val" style="color:${pl.startsWith("+")?"#27ae60":"#e74c3c"}">${pl}</div></div>
+      <div class="kpi"><div class="label">Net P&amp;L</div><div class="val" style="color:${pl.startsWith("+")?"#27ae60":"#e74c3c"}">${pl}</div></div>
     </div>
-    <table>
-      <thead><tr><th>#</th><th>Product</th><th>Category</th><th>Qty</th><th>Purchase</th><th>Selling</th><th>Revenue</th><th>Cost</th><th>Profit</th><th>Margin</th><th>Status</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table></body></html>`);
+
+    <div class="section-head profit-head">✅ Profit Items (${profitItems.length})</div>
+    ${profitItems.length ? `<table>${tableHead}<tbody>${profitRows}</tbody></table>` : `<div class="no-data">No profit items for this period.</div>`}
+
+    <div class="section-head loss-head">⚠️ Loss Items (${lossItems.length})</div>
+    ${lossItems.length ? `<table>${tableHead}<tbody>${lossRows}</tbody></table>` : `<div class="no-data">No loss items for this period. 🎉</div>`}
+  </body></html>`);
   win.document.close();
 }
 

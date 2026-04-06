@@ -704,23 +704,78 @@
           <div class="chart-wrap" style="height:260px"><canvas id="rptTrendChart"></canvas></div>
         </div>
 
-        <!-- Product Performance Table -->
-        <div class="card" style="margin-top:16px">
-          <div class="card-head">
-            <h3><i class="fa-solid fa-pills"></i> Product Performance</h3>
-            <input type="text" id="rptProductSearch" placeholder="Search product..." oninput="filterReportTable()"
-              style="padding:7px 12px;border:1px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:0.85rem;background:var(--input-bg);color:var(--text);outline:none;width:200px">
+        <!-- P&L Summary Strip -->
+        <div style="display:flex;gap:12px;margin-top:16px;flex-wrap:wrap">
+          <div style="flex:1;min-width:200px;background:linear-gradient(135deg,rgba(39,174,96,0.13),rgba(39,174,96,0.04));border:1px solid rgba(39,174,96,0.3);border-radius:14px;padding:16px 20px;display:flex;align-items:center;gap:14px">
+            <div style="width:44px;height:44px;border-radius:12px;background:rgba(39,174,96,0.15);display:flex;align-items:center;justify-content:center;color:var(--green);font-size:18px"><i class="fa-solid fa-arrow-trend-up"></i></div>
+            <div><div style="font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--text-light)">Profit Items</div><div id="rptProfitCount" style="font-size:1.5rem;font-weight:700;color:var(--green)">—</div></div>
+          </div>
+          <div style="flex:1;min-width:200px;background:linear-gradient(135deg,rgba(231,76,60,0.13),rgba(231,76,60,0.04));border:1px solid rgba(231,76,60,0.3);border-radius:14px;padding:16px 20px;display:flex;align-items:center;gap:14px">
+            <div style="width:44px;height:44px;border-radius:12px;background:rgba(231,76,60,0.15);display:flex;align-items:center;justify-content:center;color:var(--red);font-size:18px"><i class="fa-solid fa-arrow-trend-down"></i></div>
+            <div><div style="font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--text-light)">Loss Items</div><div id="rptLossCount" style="font-size:1.5rem;font-weight:700;color:var(--red)">—</div></div>
+          </div>
+          <div style="flex:1;min-width:200px;background:linear-gradient(135deg,rgba(39,174,96,0.1),rgba(39,174,96,0.02));border:1px solid rgba(39,174,96,0.2);border-radius:14px;padding:16px 20px;display:flex;align-items:center;gap:14px">
+            <div style="width:44px;height:44px;border-radius:12px;background:rgba(39,174,96,0.1);display:flex;align-items:center;justify-content:center;color:var(--green);font-size:18px"><i class="fa-solid fa-sack-dollar"></i></div>
+            <div><div style="font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--text-light)">Total Profit Earned</div><div id="rptTotalProfitEarned" style="font-size:1.3rem;font-weight:700;color:var(--green)">—</div></div>
+          </div>
+          <div style="flex:1;min-width:200px;background:linear-gradient(135deg,rgba(231,76,60,0.1),rgba(231,76,60,0.02));border:1px solid rgba(231,76,60,0.2);border-radius:14px;padding:16px 20px;display:flex;align-items:center;gap:14px">
+            <div style="width:44px;height:44px;border-radius:12px;background:rgba(231,76,60,0.1);display:flex;align-items:center;justify-content:center;color:var(--red);font-size:18px"><i class="fa-solid fa-circle-minus"></i></div>
+            <div><div style="font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--text-light)">Total Loss Amount</div><div id="rptTotalLossAmount" style="font-size:1.3rem;font-weight:700;color:var(--red)">—</div></div>
+          </div>
+        </div>
+
+        <!-- Search bar for both tables -->
+        <div style="margin-top:16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <div style="position:relative;flex:1;min-width:220px;max-width:360px">
+            <i class="fa-solid fa-magnifying-glass" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--text-light);font-size:13px"></i>
+            <input type="text" id="rptProductSearch" placeholder="Search product or category..." oninput="filterReportTable()"
+              style="width:100%;padding:9px 12px 9px 36px;border:1px solid var(--border);border-radius:10px;font-family:'DM Sans',sans-serif;font-size:0.85rem;background:var(--input-bg);color:var(--text);outline:none">
+          </div>
+          <span style="font-size:0.8rem;color:var(--text-light)">Filter applies to both tables below</span>
+        </div>
+
+        <!-- PROFIT TABLE -->
+        <div class="card" style="margin-top:16px;border-top:3px solid var(--green)">
+          <div class="card-head" style="gap:10px">
+            <div style="display:flex;align-items:center;gap:10px">
+              <div style="width:32px;height:32px;border-radius:8px;background:rgba(39,174,96,0.15);display:flex;align-items:center;justify-content:center;color:var(--green)"><i class="fa-solid fa-arrow-trend-up"></i></div>
+              <h3 style="color:var(--green)">Profit Items</h3>
+            </div>
+            <span id="rptProfitTableBadge" style="background:rgba(39,174,96,0.12);color:var(--green);border:1px solid rgba(39,174,96,0.3);border-radius:20px;padding:2px 12px;font-size:0.78rem;font-weight:600">0 items</span>
           </div>
           <div class="table-scroll">
-            <table id="rptProductTable">
+            <table id="rptProfitTable">
               <thead>
                 <tr>
                   <th>#</th><th>Product</th><th>Category</th><th>Qty Sold</th>
                   <th>Purchase Price</th><th>Selling Price</th><th>Revenue (₹)</th>
-                  <th>Cost (₹)</th><th>Profit (₹)</th><th>Margin %</th><th>Status</th>
+                  <th>Cost (₹)</th><th>Profit (₹)</th><th>Margin %</th>
                 </tr>
               </thead>
-              <tbody><tr><td colspan="11" class="table-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</td></tr></tbody>
+              <tbody><tr><td colspan="10" class="table-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- LOSS TABLE -->
+        <div class="card" style="margin-top:16px;border-top:3px solid var(--red)">
+          <div class="card-head" style="gap:10px">
+            <div style="display:flex;align-items:center;gap:10px">
+              <div style="width:32px;height:32px;border-radius:8px;background:rgba(231,76,60,0.15);display:flex;align-items:center;justify-content:center;color:var(--red)"><i class="fa-solid fa-arrow-trend-down"></i></div>
+              <h3 style="color:var(--red)">Loss Items</h3>
+            </div>
+            <span id="rptLossTableBadge" style="background:rgba(231,76,60,0.12);color:var(--red);border:1px solid rgba(231,76,60,0.3);border-radius:20px;padding:2px 12px;font-size:0.78rem;font-weight:600">0 items</span>
+          </div>
+          <div class="table-scroll">
+            <table id="rptLossTable">
+              <thead>
+                <tr>
+                  <th>#</th><th>Product</th><th>Category</th><th>Qty Sold</th>
+                  <th>Purchase Price</th><th>Selling Price</th><th>Revenue (₹)</th>
+                  <th>Cost (₹)</th><th>Loss (₹)</th><th>Margin %</th>
+                </tr>
+              </thead>
+              <tbody><tr><td colspan="10" class="table-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</td></tr></tbody>
             </table>
           </div>
         </div>
